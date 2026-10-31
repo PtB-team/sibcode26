@@ -6,6 +6,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from api.errors import ServiceError
+from api.presentation import (
+    fixed_material_response,
+    material_data_status,
+    material_result_response,
+)
 from schemas.material import utc_now
 
 
@@ -47,6 +52,8 @@ class Database:
                     attempts INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS flights_queue ON flights(status, uploaded_at);
+                CREATE INDEX IF NOT EXISTS flights_object_uploaded
+                    ON flights(object_id, uploaded_at DESC);
                 CREATE TABLE IF NOT EXISTS images (
                     id TEXT PRIMARY KEY, flight_id TEXT NOT NULL REFERENCES flights(id),
                     payload TEXT NOT NULL
@@ -69,13 +76,28 @@ class Database:
     def object(self, object_id: str) -> dict:
         with self.connection() as db:
             row = db.execute("SELECT * FROM objects WHERE id=?", (object_id,)).fetchone()
+            latest = db.execute(
+                "SELECT id FROM flights WHERE object_id=? "
+                "ORDER BY uploaded_at DESC, rowid DESC LIMIT 1",
+                (object_id,),
+            ).fetchone()
         if row is None:
             raise ServiceError(404, "NOT_FOUND", "Объект не найден")
+        payload = json.loads(row["payload"])
+        project_material = (payload.get("project") or {}).get("wall_material")
+        material = json.loads(row["material"]) if row["material"] else None
+        last_flight = self.flight(latest["id"]) if latest else None
+        result = last_flight["material_result"] if last_flight else None
         return {
-            **json.loads(row["payload"]),
+            **payload,
             "id": row["id"],
             "created_at": row["created_at"],
-            "material": json.loads(row["material"]) if row["material"] else None,
+            "material": fixed_material_response(material, project_material),
+            "last_flight": last_flight,
+            "last_flight_id": last_flight["flight_id"] if last_flight else None,
+            "last_flight_at": last_flight["flown_at"] if last_flight else None,
+            "material_status": result["status"] if result else None,
+            "data_status": material_data_status(last_flight),
         }
 
     def objects(self, limit: int, offset: int) -> dict:
@@ -130,7 +152,9 @@ class Database:
             "images_count": count,
             "result": None,
             "land_result": None,
-            "material_result": json.loads(row["result"]) if row["result"] else None,
+            "material_result": material_result_response(
+                json.loads(row["result"]) if row["result"] else None
+            ),
             "error": json.loads(row["error"]) if row["error"] else None,
             "review": json.loads(review["payload"]) if review else None,
         }
@@ -139,7 +163,8 @@ class Database:
         self.object(object_id)
         with self.connection() as db:
             ids = db.execute(
-                "SELECT id FROM flights WHERE object_id=? ORDER BY uploaded_at DESC", (object_id,)
+                "SELECT id FROM flights WHERE object_id=? ORDER BY uploaded_at DESC, rowid DESC",
+                (object_id,),
             ).fetchall()
         return [self.flight(row["id"]) for row in ids]
 
