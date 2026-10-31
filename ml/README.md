@@ -1,0 +1,118 @@
+# ML: детектор агента готовности
+
+Разметка снимков под YOLO-детектор (классы — `configs/classes.yaml`, BACKEND.md раздел 3.2), материал стен для классификатора (`configs/materials.yaml`, раздел 5.2), обмен с Label Studio и обучение.
+
+```
+ml/
+├── annotations/
+│   ├── labels/<объект>/<снимок>.txt   # разметка: class cx cy w h [материал стены]
+│   ├── manifest.csv                   # снимок, объект, ракурс, статус, EXIF, источник, заметка
+│   ├── labelstudio_config.xml         # интерфейс разметки
+│   └── labelstudio_tasks.json         # задачи с разметкой для импорта
+├── common.py
+├── add_images.py                      # добавить партию внешних фото в разметку
+├── labelstudio.py                     # разметка <-> Label Studio
+├── prepare_dataset.py                 # data/yolo/ с делением train/val по объектам
+├── train.py                           # обучение детектора
+├── train_material.py                  # обучение классификатора материала стен
+└── download_drone_dataset.py          # скачивание стоковых роликов (сейчас блокируется сайтами)
+```
+
+## Обучение
+
+```bash
+pip install -r req.txt
+python ml/train.py                 # YOLO26m, imgsz 1280, batch 2, 150 эпох, val = объекты 6 и 13
+python ml/train.py --batch 8       # на видеокарте от 12 ГБ
+python ml/train.py --model yolo11m.pt
+```
+
+На RTX 4050 6 ГБ: batch 2 занимает около 5 ГБ, эпоха на 72 снимках идёт около 15 с.
+
+Скрипт пересобирает `data/yolo/` из разметки, обучает, копирует лучшие веса в `weights/readiness_<модель>.pt` и пишет метрики val в `runs/<name>/metrics_val.json`. `data/`, `weights/` и `runs/` — в `.gitignore`.
+
+В обучение идут только снимки со статусом `reviewed` из `manifest.csv`. Train и val делятся **по объектам**: папка `dataset/<N>` или `house_<NNN>` внешних фото, снимки одного дома не попадают в обе выборки. Val по умолчанию — объекты 6 и 13, только настоящие облёты; внешние фото идут в train. Если папки `data/external/` нет, внешние снимки пропускаются с предупреждением.
+
+## Классификатор материала стен
+
+```bash
+python ml/train_material.py                # YOLO26m-cls, imgsz 384, до 60 эпох, около 15–30 минут на RTX 4050
+```
+
+Кропы стен (`walls_partial` / `walls_full` с материалом, поле 10%) нарезаются из той же разметки в `data/material/`. Train и val делятся по объектам; по умолчанию val подбирается сам — около 20% кропов каждого материала. Веса — `weights/material_yolo26m-cls.pt`, метрики — `runs/material/metrics_val.json`: точность по классам, по группам материалов (раздел 5.7) и матрица ошибок.
+
+Детектор и классификатор подряд (PowerShell):
+
+```powershell
+python ml/train.py --name readiness_v2; python ml/train_material.py
+```
+
+## Разметка
+
+232 снимка, 42 объекта, 1537 рамок, 13 классов.
+
+| Источник | Снимков | Что |
+|---|---|---|
+| `dataset/1`–`13` | 72 | облёты банка, 12 объектов (папки 3 — пустой участок, 7–8 — фундамент, остальные — дома с кровлей; 12 — частично супермаркет) |
+| `data/external/house_photos_2` | 160 | кадры из YouTube-роликов с дрона, 30 строек: участки, фундаменты, кладка, стропила, готовые дома |
+
+| Класс | Рамок | | Класс | Рамок |
+|---|---|---|---|---|
+| site_prep | 46 | | opening_empty | 128 |
+| foundation | 89 | | window_installed | 216 |
+| walls_partial | 49 | | door_installed | 14 |
+| walls_full | 287 | | facade_finish | 90 |
+| roof_frame | 25 | | building | 109 |
+| roof_covered | 324 | | paving | 19 |
+| | | | fence | 141 |
+
+Материал стен у всех 336 рамок стен: скрыт отделкой 138, кирпич 65, газобетон 57, брус 26, керамоблок 23, не определить 16, каркас 11.
+
+Внешние фото не в git (`data/external/`, авторские права источников). Разметка к ним в git есть; чтобы увидеть снимки и учиться на них, папку нужно получить отдельно.
+
+Правила разметки:
+- Размечено всё видимое, включая соседние дома, если они не мелкие. Маска «класс × ракурс» применяется при агрегации (раздел 3.1), а не при разметке.
+- `fence` (id 12) — любые заборы и ограждения стройки, на всех ракурсах. Длинный забор, особенно по диагонали кадра, размечается отрезками. Пустой участок с забором — признак, что освоение началось.
+- Фундамент размечается, пока он открыт. Под готовыми домами цоколь не размечается.
+- `facade_finish` — сайдинг, штукатурка, панели, облицовка, облицовочный кирпич. Мембрана, OSB и открытая кладка отделкой не считаются.
+- Материал стены — у каждой рамки `walls_partial` / `walls_full`. Если стену закрывает отделка, мембрана или OSB — `hidden`; если не разобрать (далеко, тень, двухслойная кладка) — `unclear`. `frame` — только открытый каркас.
+- Видимый кирпич — `brick`, в том числе облицовочный на готовом доме (тогда рядом ещё и рамка `facade_finish`). С дрона облицовку от несущей кладки не отличить; несущий материал под облицовкой уточняется по проекту или на облёте стадии «Стены».
+- Бытовки, бани, сараи не размечаются: класса хозпостроек нет.
+- Кадры с крупным текстом поверх, смазанные и наплывы между сценами получают статус `skip`.
+
+Ограничения:
+- `door_installed` — всего 14 рамок, `roof_frame` — 25, `paving` — только на облётах банка.
+- Рамки ставились по превью с сеткой: у крупных элементов точность около 1% кадра, у мелких окон — хуже. Перед обучением стоит пройти разметку в Label Studio.
+- Объект 12 частично не ИЖС (супермаркет). Исключить: `--exclude-objects 12`.
+
+## Добавить новые фото
+
+Партия по ТЗ на сбор — папка с `house_NNN/*.jpg` и `manifest.csv`:
+
+```bash
+python ml/add_images.py data/external/house_photos --max-per-house 3 --prelabel weights/readiness_yolo26m.pt
+python ml/labelstudio.py export
+```
+
+Новые снимки получают статус `prelabel` и черновые рамки модели. В Label Studio они придут как predictions; после проверки и импорта станут `reviewed`.
+
+## Label Studio
+
+1. Запустить Label Studio с доступом к файлам репозитория (PowerShell, из корня репозитория):
+   ```powershell
+   $env:LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED = "true"
+   $env:LABEL_STUDIO_LOCAL_FILES_DOCUMENT_ROOT = (Get-Location).Path
+   label-studio start
+   ```
+   Откроется http://localhost:8080, при первом запуске нужно зарегистрироваться (локально).
+2. Create Project → вкладка Labeling Setup → Custom template → Code: вставить содержимое `ml/annotations/labelstudio_config.xml` → Save.
+3. Settings → Cloud Storage → Add Source Storage → Local files. Absolute local path — **корень репозитория** (тот же путь, что в `DOCUMENT_ROOT`): снимки лежат и в `dataset/`, и в `data/external/`. Галочку «Treat every bucket object as a source file» снять, Sync Storage **не нажимать**: задачи придут из JSON.
+4. Import → выбрать `ml/annotations/labelstudio_tasks.json`.
+5. Проверка: рамка выделяется кликом, материал стены выбирается под снимком, пока рамка выделена. Ракурс — внизу. После правок — Submit/Update.
+6. Забрать правки: Export → JSON, затем
+   ```bash
+   python ml/labelstudio.py import путь/к/export.json
+   ```
+   Разметка в `annotations/labels/`, материалы и ракурсы в `manifest.csv` обновятся, снимки станут `reviewed`.
+
+Если классы в `configs/classes.yaml` или материалы поменялись, пересоздать файлы: `python ml/labelstudio.py config` и `python ml/labelstudio.py export`.
