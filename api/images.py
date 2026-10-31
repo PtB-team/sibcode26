@@ -101,6 +101,7 @@ def inspect_image(path: Path, settings: Settings) -> dict:
         "has_exif": bool(exif),
         "camera_pitch": pitch,
         "camera_yaw": _number(header, "GimbalYawDegree"),
+        "relative_altitude": _number(header, "RelativeAltitude"),
         "is_overhead": pitch is not None and pitch <= -75,
         "view": None,
         "view_source": None,

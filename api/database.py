@@ -55,7 +55,16 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     flight_id TEXT NOT NULL REFERENCES flights(id), payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS readiness_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    flight_id TEXT NOT NULL REFERENCES flights(id), payload TEXT NOT NULL
+                );
             """)
+            # Databases created by the material-only version lack the readiness columns.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(flights)")}
+            for column in ("readiness", "detections"):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE flights ADD COLUMN {column} TEXT")
 
     def create_object(self, payload: dict) -> dict:
         object_id, created_at = "obj_" + uuid4().hex, utc_now()
@@ -117,6 +126,11 @@ class Database:
                 "SELECT payload FROM material_reviews WHERE flight_id=? ORDER BY id DESC LIMIT 1",
                 (flight_id,),
             ).fetchone()
+            readiness_review = db.execute(
+                "SELECT id,payload FROM readiness_reviews WHERE flight_id=? "
+                "ORDER BY id DESC LIMIT 1",
+                (flight_id,),
+            ).fetchone()
         if row is None:
             raise ServiceError(404, "NOT_FOUND", "Облёт не найден")
         return {
@@ -128,12 +142,24 @@ class Database:
             "target_confirmed": bool(row["target_confirmed"]),
             "mock": bool(row["is_demo"]),
             "images_count": count,
-            "result": None,
+            "result": json.loads(row["readiness"]) if row["readiness"] else None,
             "land_result": None,
             "material_result": json.loads(row["result"]) if row["result"] else None,
             "error": json.loads(row["error"]) if row["error"] else None,
             "review": json.loads(review["payload"]) if review else None,
+            "readiness_review": (
+                self._readiness_review(readiness_review, flight_id) if readiness_review else None
+            ),
         }
+
+    @staticmethod
+    def _readiness_review(row: sqlite3.Row, flight_id: str) -> dict:
+        return {"id": f"rev_{row['id']}", "flight_id": flight_id, **json.loads(row["payload"])}
+
+    def detections(self, flight_id: str) -> dict[str, list[dict]]:
+        with self.connection() as db:
+            row = db.execute("SELECT detections FROM flights WHERE id=?", (flight_id,)).fetchone()
+        return json.loads(row["detections"]) if row and row["detections"] else {}
 
     def flights(self, object_id: str) -> list[dict]:
         self.object(object_id)
@@ -157,6 +183,10 @@ class Database:
         if row is None:
             raise ServiceError(404, "NOT_FOUND", "Снимок не найден")
         return json.loads(row["payload"])
+
+    def update_image(self, image: dict) -> None:
+        with self.connection() as db:
+            db.execute("UPDATE images SET payload=? WHERE id=?", (encode(image), image["id"]))
 
     def claim(self, lease_seconds: int) -> tuple[str, str] | None:
         with self.connection() as db:
@@ -194,7 +224,14 @@ class Database:
             )
 
     def finish(
-        self, flight_id: str, token: str, *, result: dict | None = None, error: dict | None = None
+        self,
+        flight_id: str,
+        token: str,
+        *,
+        result: dict | None = None,
+        readiness: dict | None = None,
+        detections: dict | None = None,
+        error: dict | None = None,
     ) -> bool:
         with self.connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -226,13 +263,18 @@ class Database:
                             " Результат расходится с сохранённым материалом: нужна проверка."
                         )
             changed = db.execute(
-                "UPDATE flights SET status=?,result=?,error=?,is_demo=COALESCE(?,is_demo),lease_until=NULL "
+                "UPDATE flights SET status=?,result=?,readiness=?,detections=?,error=?,"
+                "is_demo=COALESCE(?,is_demo),lease_until=NULL "
                 "WHERE id=? AND status='processing' AND lease_token=?",
                 (
                     "failed" if error else "done",
                     encode(result) if result else None,
+                    encode(readiness) if readiness else None,
+                    encode(detections) if detections is not None else None,
                     encode(error) if error else None,
-                    bool(result["is_demo"]) if result else None,
+                    bool(result["is_demo"] or (readiness or {}).get("is_demo"))
+                    if result
+                    else None,
                     flight_id,
                     token,
                 ),
@@ -291,3 +333,16 @@ class Database:
                 ),
             )
         return review
+
+    def add_readiness_review(self, flight_id: str, review: dict) -> dict:
+        with self.connection() as db:
+            row = db.execute("SELECT status FROM flights WHERE id=?", (flight_id,)).fetchone()
+            if row is None:
+                raise ServiceError(404, "NOT_FOUND", "Облёт не найден")
+            if row["status"] != "done":
+                raise ServiceError(409, "FLIGHT_NOT_READY", "Дождитесь окончания обработки")
+            review_id = db.execute(
+                "INSERT INTO readiness_reviews(flight_id,payload) VALUES (?,?)",
+                (flight_id, encode(review)),
+            ).lastrowid
+        return {"id": f"rev_{review_id}", "flight_id": flight_id, **review}

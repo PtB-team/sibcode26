@@ -11,6 +11,7 @@ class Settings:
     max_pixels: int = 60_000_000
     photo_utc_offset_hours: int = 7
     model_factory: str | None = None
+    detector_factory: str | None = None
     mock: bool = True
     job_lease_seconds: int = 900
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://localhost:3000")
@@ -21,6 +22,7 @@ class Settings:
             storage_dir=Path(os.getenv("STORAGE_DIR", ".local/material-backend")).resolve(),
             photo_utc_offset_hours=int(os.getenv("PHOTO_UTC_OFFSET_HOURS", "7")),
             model_factory=os.getenv("MATERIAL_MODEL_FACTORY") or None,
+            detector_factory=os.getenv("DETECTOR_FACTORY") or None,
             mock=os.getenv("MOCK", "1") == "1",
             cors_origins=tuple(
                 value.strip()

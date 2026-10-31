@@ -1,0 +1,38 @@
+# Классы детектора стройки (BACKEND.md, разделы 3.1–3.2).
+# views — на каких ракурсах класс учитывается: facade, top_low, top_high.
+# Детекции на остальных ракурсах сохраняются, но в агрегацию не попадают.
+version: classes@v1
+
+views:
+  - {id: top_low, label: "Сверху: дом"}
+  - {id: top_high, label: "Сверху: участок"}
+  - {id: N, label: Север}
+  - {id: E, label: Восток}
+  - {id: S, label: Юг}
+  - {id: W, label: Запад}
+
+# Надир без ручного ракурса делится по RelativeAltitude из XMP DJI (высота от точки взлёта).
+# null — не делить: такой снимок остаётся надиром без роли, и по нему учитываются только
+# классы, разрешённые и на top_low, и на top_high.
+top_high_min_relative_altitude_m: 30
+
+# Сторона фасада без ручного ракурса — по азимуту камеры (GimbalYawDegree): фасад смотрит на
+# камеру, сетка 90° подгоняется под дом в этом облёте. Снимок дальше допуска от сетки (угол дома)
+# остаётся без стороны. null — не определять стороны автоматически.
+facade_side_tolerance_deg: 25
+
+classes:
+  - {id: site_prep, label: Подготовка участка, color: "#8D6E63", views: [facade, top_low, top_high]}
+  - {id: foundation, label: Фундамент, color: "#6D4C41", views: [facade, top_low, top_high]}
+  - {id: walls_partial, label: Стены в процессе, color: "#9CCC65", views: [facade, top_low]}
+  - {id: walls_full, label: Стены выведены, color: "#2E7D32", views: [facade, top_low]}
+  - {id: roof_frame, label: Стропила, color: "#FFB74D", views: [facade, top_low]}
+  - {id: roof_covered, label: Кровля, color: "#E65100", views: [facade, top_low]}
+  - {id: opening_empty, label: Пустой проём, color: "#90A4AE", views: [facade]}
+  - {id: window_installed, label: Окно, color: "#1E88E5", views: [facade]}
+  - {id: door_installed, label: Входная дверь, color: "#3949AB", views: [facade]}
+  - {id: facade_finish, label: Отделка фасада, color: "#8E24AA", views: [facade]}
+  - {id: building, label: Дом сверху, color: "#455A64", views: [top_high]}
+  - {id: outbuilding, label: Хозпостройка, color: "#00897B", views: [top_high]}
+  - {id: fence, label: Забор, color: "#5D4037", views: [top_high]}
+  - {id: paving, label: Дорожки и площадки, color: "#BDBDBD", views: [top_high]}

@@ -47,9 +47,27 @@ class Project(Contract):
     wall_material: WallMaterial | None = None
 
 
+Position = tuple[Annotated[float, Field(ge=-180, le=180)], Annotated[float, Field(ge=-90, le=90)]]
+
+
+class ParcelPolygon(Contract):
+    """Parcel boundary from the cadastre: GeoJSON Polygon, vertices as [lon, lat]."""
+
+    type: Literal["Polygon"]
+    coordinates: list[list[Position]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_rings(self) -> "ParcelPolygon":
+        for ring in self.coordinates:
+            if len(ring) < 4 or ring[0] != ring[-1]:
+                raise ValueError("Контур участка: минимум 3 точки, первая совпадает с последней")
+        return self
+
+
 class ObjectCreate(Contract):
     address: str = Field(min_length=1, max_length=500)
     cadastral: str | None = Field(default=None, max_length=100)
+    parcel_geojson: ParcelPolygon | None = None
     project: Project | None = None
     notes: str = Field(default="", max_length=4000)
 
