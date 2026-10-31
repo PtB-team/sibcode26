@@ -18,6 +18,7 @@ from api.config import Settings
 from api.database import Database
 from api.errors import ServiceError
 from api.images import inspect_image
+from api.presentation import MATERIAL_STATUSES
 from schemas.material import (
     MATERIALS,
     TOP_VIEWS,
@@ -54,7 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Материалы стен ИЖС",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
         description=(
             "Загрузка снимков и обработка материала стен. "
@@ -125,12 +126,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "scope": "wall_material",
             "mock": settings.mock,
+            "capabilities": {
+                "wall_material": True,
+                "material_review": True,
+                "readiness": False,
+                "risk": False,
+                "conductor": False,
+                "alerts": False,
+                "tasks": False,
+                "history": False,
+                "registry_import": False,
+            },
             "material_model_version": "demo-unavailable@v1"
             if settings.mock
             else "external-adapter",
             "materials": [
                 {"id": key, "label": value[0], "group": value[1]}
                 for key, value in MATERIALS.items()
+            ]
+            + [
+                {"id": "hidden", "label": "Скрыт отделкой", "group": None},
+                {"id": "unclear", "label": "Не определить", "group": None},
+            ],
+            "material_statuses": [
+                {"id": key, "label": label} for key, label in MATERIAL_STATUSES.items()
             ],
             "views": [{"id": value.value, "label": value.value} for value in View],
         }
@@ -151,9 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(prefix + "/objects/{object_id}", tags=["Объекты"])
     def get_object(object_id: str):
-        value = database.object(object_id)
-        flights = database.flights(object_id)
-        return {**value, "last_flight": flights[0] if flights else None}
+        return database.object(object_id)
 
     @app.post(prefix + "/objects/{object_id}/flights", status_code=202, tags=["Облёты"])
     def upload_flight(
