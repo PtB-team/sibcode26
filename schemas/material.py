@@ -62,8 +62,6 @@ class ImageMeta(Contract):
 
 
 class Observation(Contract):
-    """What the ML adapter observed in one wall area; no bank decisions here."""
-
     image_id: str
     visibility: Literal["visible", "hidden", "no_walls", "unclear"]
     material: WallMaterial | None = None
