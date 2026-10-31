@@ -1,0 +1,9 @@
+# API for wall-material processing; training dependencies stay in req.txt.
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+python-multipart>=0.0.20,<1
+pydantic>=2.9,<3
+Pillow>=10.4,<13
+PyYAML>=6.0.2,<7
+httpx>=0.27,<1
+python-dotenv>=1,<2

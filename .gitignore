@@ -1,10 +1,17 @@
-# датасет YOLO собирается скриптом, веса — по ссылке (README, разделы 2 и 11.1)
-data/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
+.local/
 weights/
+
+# ML: датасет YOLO собирается скриптом, веса — по ссылке (README, разделы 2 и 11.1)
+data/
 runs/
 *.pt
 *.onnx
-__pycache__/
 
 # кадры и ролики ml/download_drone_dataset.py
 видео/

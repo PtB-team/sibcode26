@@ -5,6 +5,18 @@
 # Маска применяется при агрегации, а не при разметке: на снимках размечено всё видимое
 # (кровля на надирах, building на top_low), иначе детектор учится на противоречивых примерах.
 
+version: classes@ml-v2
+views:
+  - {id: top_low, label: "Сверху: дом"}
+  - {id: top_high, label: "Сверху: участок"}
+  - {id: N, label: Север}
+  - {id: E, label: Восток}
+  - {id: S, label: Юг}
+  - {id: W, label: Запад}
+top_high_min_relative_altitude_m: 30
+# Facade sides remain suggestions until explicitly supplied in views.
+facade_side_tolerance_deg: 25
+
 classes:
   - {id: 0,  name: site_prep,        label_ru: "Подготовка участка", color: "#FFA000", views: [facade, top_low, top_high]}
   - {id: 1,  name: foundation,       label_ru: "Фундамент",          color: "#A0522D", views: [facade, top_low, top_high]}
