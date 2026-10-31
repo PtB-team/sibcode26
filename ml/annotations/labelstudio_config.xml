@@ -1,0 +1,45 @@
+<View>
+  <Header value="$title"/>
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false"/>
+  <RectangleLabels name="label" toName="image" strokeWidth="2" canRotate="false">
+    <Label value="site_prep" hint="Подготовка участка" background="#FFA000"/>
+    <Label value="foundation" hint="Фундамент" background="#A0522D"/>
+    <Label value="walls_partial" hint="Стены в процессе" background="#FF69B4"/>
+    <Label value="walls_full" hint="Стены выведены" background="#E53935"/>
+    <Label value="roof_frame" hint="Стропила" background="#00BCD4"/>
+    <Label value="roof_covered" hint="Кровля" background="#1E40FF"/>
+    <Label value="opening_empty" hint="Пустой проём" background="#FFEB3B"/>
+    <Label value="window_installed" hint="Окно" background="#00C853"/>
+    <Label value="door_installed" hint="Входная дверь" background="#D500F9"/>
+    <Label value="facade_finish" hint="Отделка фасада" background="#B0BEC5"/>
+    <Label value="building" hint="Дом сверху" background="#7C4DFF"/>
+    <Label value="paving" hint="Дорожки и площадки" background="#757575"/>
+    <Label value="fence" hint="Забор" background="#FF8A80"/>
+  </RectangleLabels>
+  <View visibleWhen="region-selected" whenTagName="label" whenLabelValue="walls_partial,walls_full"
+        style="padding: 8px 12px; margin-top: 8px; border: 2px solid #E53935; border-radius: 6px">
+    <Header value="Материал выделенной стены" size="5"/>
+    <Choices name="material" toName="image" perRegion="true" choice="single" showInline="true">
+    <Choice value="brick" hint="Кирпич"/>
+    <Choice value="aerated_concrete" hint="Газобетон / пеноблок"/>
+    <Choice value="ceramic_block" hint="Керамический блок"/>
+    <Choice value="timber" hint="Брус / бревно"/>
+    <Choice value="frame" hint="Каркас (открытый)"/>
+    <Choice value="sip" hint="СИП-панели"/>
+    <Choice value="monolith" hint="Монолит"/>
+    <Choice value="hidden" hint="Скрыт отделкой / плёнкой"/>
+    <Choice value="unclear" hint="Не определить"/>
+    </Choices>
+  </View>
+  <Choices name="view" toName="image" choice="single" showInline="true">
+    <Choice value="N"/>
+    <Choice value="E"/>
+    <Choice value="S"/>
+    <Choice value="W"/>
+    <Choice value="top_low"/>
+    <Choice value="top_high"/>
+    <Choice value="oblique"/>
+    <Choice value="nadir"/>
+    <Choice value="ground"/>
+  </Choices>
+</View>
