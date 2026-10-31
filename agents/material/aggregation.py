@@ -8,6 +8,7 @@ from schemas.material import (
     View,
     ViewObservation,
     WallMaterial,
+    compare_materials,
 )
 
 
@@ -121,10 +122,5 @@ def aggregate(
         )
     )
     if project_material is not None and result.status == "determined":
-        if winner == project_material:
-            result.match = "match"
-        elif MATERIALS[winner][1] == MATERIALS[project_material][1]:
-            result.match = "deviation"
-        else:
-            result.match = "mismatch"
+        result.match = compare_materials(winner, project_material)
     return result

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
@@ -45,6 +45,32 @@ BBox = tuple[Score, Score, Score, Score]
 
 class Project(Contract):
     wall_material: WallMaterial | None = None
+    floors: int | None = Field(default=None, ge=1)
+    footprint_m2: float | None = Field(default=None, gt=0)
+    source: str | None = Field(default=None, max_length=1000)
+
+
+Stage = Literal["none", "foundation", "walls", "roof", "openings", "facade", "done"]
+MaterialMatch = Literal["match", "deviation", "mismatch", "unclear", "no_project"]
+
+
+class Checkpoint(Contract):
+    stage: Stage
+    due: date
+
+
+class Tranche(Contract):
+    n: int = Field(ge=1)
+    amount: float = Field(ge=0)
+    paid_at: date | None = None
+    condition_stage: Stage | None = None
+
+
+class Loan(Contract):
+    amount: float | None = Field(default=None, ge=0)
+    dpd: int = Field(default=0, ge=0)
+    collateral_value_rub: float | None = Field(default=None, ge=0)
+    tranches: list[Tranche] = Field(default_factory=list)
 
 
 class ObjectCreate(Contract):
@@ -52,6 +78,49 @@ class ObjectCreate(Contract):
     cadastral: str | None = Field(default=None, max_length=100)
     project: Project | None = None
     notes: str = Field(default="", max_length=4000)
+    loan_id: str | None = Field(default=None, max_length=100)
+    started_at: date | None = None
+    planned_completion_at: date | None = None
+    actual_completion_at: date | None = None
+    overdue: bool = False
+    registered: bool = False
+    pledged: bool = False
+    has_aerial_photo: bool = False
+    loan: Loan | None = None
+    checkpoints: list[Checkpoint] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "ObjectCreate":
+        if self.started_at is not None:
+            if (
+                self.planned_completion_at is not None
+                and self.planned_completion_at < self.started_at
+            ):
+                raise ValueError("Плановая дата раньше даты начала строительства")
+            if (
+                self.actual_completion_at is not None
+                and self.actual_completion_at < self.started_at
+            ):
+                raise ValueError("Фактическая дата раньше даты начала строительства")
+        for checkpoint in self.checkpoints:
+            if self.started_at is not None and checkpoint.due < self.started_at:
+                raise ValueError("Контрольная точка раньше даты начала строительства")
+            if (
+                self.planned_completion_at is not None
+                and checkpoint.due > self.planned_completion_at
+            ):
+                raise ValueError("Контрольная точка позже плановой даты завершения")
+        return self
+
+
+def compare_materials(material: str | None, project_material: str | None) -> MaterialMatch:
+    if project_material is None:
+        return "no_project"
+    if material not in MATERIALS or project_material not in MATERIALS:
+        return "unclear"
+    if material == project_material:
+        return "match"
+    return "deviation" if MATERIALS[material][1] == MATERIALS[project_material][1] else "mismatch"
 
 
 class ImageMeta(Contract):
@@ -110,7 +179,7 @@ class MaterialResult(Contract):
     votes: dict[str, float] = Field(default_factory=dict)
     per_view: list[ViewObservation] = Field(default_factory=list)
     project_material: WallMaterial | None = None
-    match: Literal["match", "deviation", "mismatch", "unclear", "no_project"]
+    match: MaterialMatch
     fixed_on_object: bool = False
     explanation: str
     needs_reshoot: bool = False

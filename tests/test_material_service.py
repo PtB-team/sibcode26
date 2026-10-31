@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 from dataclasses import replace
 
 import pytest
@@ -65,6 +66,133 @@ class ReadyModel:
                 crop_bbox=(0.1, 0.1, 0.9, 0.9),
             )
         ]
+
+
+def test_frontend_object_payload_is_saved_across_restart(client, settings):
+    payload = {
+        "address": "Test house",
+        "cadastral": "54:19:000001:17",
+        "loan_id": "IZH-2026-17",
+        "started_at": "2026-01-01",
+        "planned_completion_at": "2027-10-31",
+        "actual_completion_at": None,
+        "overdue": False,
+        "registered": True,
+        "pledged": False,
+        "has_aerial_photo": True,
+        "project": {
+            "wall_material": "timber",
+            "floors": 2,
+            "footprint_m2": 96,
+            "source": "Project 17",
+        },
+        "loan": {
+            "amount": 6000000,
+            "dpd": 0,
+            "collateral_value_rub": 5200000,
+            "tranches": [
+                {"n": 1, "amount": 2000000, "paid_at": "2026-01-02"},
+                {"n": 2, "amount": 2500000, "condition_stage": "walls"},
+            ],
+        },
+        "checkpoints": [{"stage": "walls", "due": "2027-01-01"}],
+    }
+    response = client.post("/api/v1/objects", json=payload)
+    assert response.status_code == 201, response.text
+    object_id = response.json()["id"]
+    with TestClient(create_app(settings)) as restarted:
+        stored = restarted.get(f"/api/v1/objects/{object_id}").json()
+        for key in payload.keys() - {"loan"}:
+            assert stored[key] == payload[key]
+        assert stored["loan"]["tranches"][1]["condition_stage"] == "walls"
+        assert stored["loan"]["tranches"][0]["paid_at"] == "2026-01-02"
+        assert stored["loan"]["amount"] == 6000000
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"unexpected": True},
+        {"started_at": "2026-10-31", "planned_completion_at": "2026-01-01"},
+        {"started_at": "2026-10-31", "actual_completion_at": "2026-01-01"},
+        {"started_at": "2026-10-31", "checkpoints": [{"stage": "walls", "due": "2026-01-01"}]},
+        {
+            "planned_completion_at": "2026-01-01",
+            "checkpoints": [{"stage": "walls", "due": "2026-10-31"}],
+        },
+        {"checkpoints": [{"stage": "invented", "due": "2026-10-31"}]},
+        {"project": {"floors": 0}},
+        {"loan": {"amount": -1}},
+    ],
+)
+def test_object_validation_stays_strict(client, payload):
+    response = client.post("/api/v1/objects", json={"address": "Test house", **payload})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert client.get("/api/v1/objects").json()["total"] == 0
+
+
+def test_meta_describes_material_scope_and_display_states(client):
+    meta = client.get("/api/v1/meta").json()
+    assert meta["scope"] == "wall_material"
+    assert meta["capabilities"]["material_review"] is True
+    assert all(meta["capabilities"][key] is False for key in ("risk", "history", "alerts", "tasks"))
+    assert {"needs_review", "mixed", "model_unavailable"} <= {
+        row["id"] for row in meta["material_statuses"]
+    }
+    assert {"hidden", "unclear"} <= {row["id"] for row in meta["materials"]}
+
+
+def test_material_public_contract_and_review_comparison(client, settings):
+    object_id = new_object(client, project={"wall_material": "aerated_concrete"})
+    flight_id = upload(client, object_id).json()["flight_id"]
+    Worker(settings, predictor=ReadyModel()).process_one()
+    result = client.get(f"/api/v1/flights/{flight_id}").json()["material_result"]
+    crop = result["per_view"][0]
+    assert crop["class"] == crop["material"] == "timber"
+    assert crop["conf"] == crop["confidence"] == 0.92
+    fixed = client.get(f"/api/v1/objects/{object_id}").json()["material"]
+    assert fixed["project"] == "aerated_concrete" and fixed["match"] == "mismatch"
+    # Public compatibility fields do not change the stored ML contract.
+    with Database(settings.database_path).connection() as db:
+        raw = json.loads(
+            db.execute("SELECT result FROM flights WHERE id=?", (flight_id,)).fetchone()[0]
+        )
+    assert "class" not in raw["per_view"][0] and "conf" not in raw["per_view"][0]
+    review = client.post(
+        f"/api/v1/flights/{flight_id}/material/review",
+        json={"action": "correct", "material": "aerated_concrete", "comment": "Checked"},
+    )
+    assert review.status_code == 201
+    fixed = client.get(f"/api/v1/objects/{object_id}").json()["material"]
+    assert fixed["observed"] == fixed["project"] == "aerated_concrete"
+    assert fixed["match"] == "match" and fixed["reviewed"]
+    assert client.get(f"/api/v1/flights/{flight_id}").json()["material_result"] == result
+
+
+def test_object_list_exposes_latest_flight_and_unconfirmed_result(client, settings, monkeypatch):
+    monkeypatch.setattr("api.database.utc_now", lambda: "2026-10-31T10:00:00+00:00")
+    object_id = new_object(client, project={"wall_material": "timber"})
+    item = client.get("/api/v1/objects").json()["items"][0]
+    assert item["last_flight_id"] is None and item["data_status"] == "no_data"
+    first_id = upload(client, object_id, target=False).json()["flight_id"]
+    assert client.get("/api/v1/objects").json()["items"][0]["data_status"] == "processing"
+    Worker(settings, predictor=ReadyModel()).process_one()
+    item = client.get("/api/v1/objects").json()["items"][0]
+    assert item["material"] is None  # An unconfirmed candidate is not a fixed material.
+    assert item["material_status"] == "needs_review" and item["data_status"] == "review"
+    assert item["last_flight"]["material_result"]["material"] == "timber"
+    assert "TARGET_NOT_CONFIRMED" in item["last_flight"]["material_result"]["review_reasons"]
+    review = client.post(f"/api/v1/flights/{first_id}/material/review", json={"action": "accept"})
+    assert review.status_code == 201
+    assert client.get(f"/api/v1/objects/{object_id}").json()["data_status"] == "ok"
+    second_id = upload(client, object_id).json()["flight_id"]
+    item = client.get("/api/v1/objects").json()["items"][0]
+    assert item["last_flight_id"] == second_id  # Upload times intentionally coincide.
+    assert item["last_flight"]["flight_id"] == second_id
+    assert item["data_status"] == "processing"
+    assert item["material"]["fixed_at_flight_id"] == first_id
+    assert client.get(f"/api/v1/objects/{object_id}").json() == item
 
 
 def test_upload_worker_and_restart_preserve_originals(client, settings):
