@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, Header, Query, UploadFile
@@ -14,11 +14,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
+from agents.readiness.config import classes_config, stages_config
+from agents.readiness.views import assign_facade_sides, overhead_view
 from api.config import Settings
 from api.database import Database
 from api.errors import ServiceError
 from api.images import inspect_image
-from api.presentation import MATERIAL_STATUSES
+from api.presentation import MATERIAL_REVIEW_REASONS, MATERIAL_STATUSES
 from schemas.material import (
     MATERIALS,
     TOP_VIEWS,
@@ -28,6 +30,7 @@ from schemas.material import (
     View,
     utc_now,
 )
+from schemas.readiness import ReadinessReview, Stage
 
 
 def parse_list(raw: str | None, count: int, name: str) -> list:
@@ -54,11 +57,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
     app = FastAPI(
-        title="Материалы стен ИЖС",
-        version="0.2.0",
+        title="Мониторинг ИЖС: материалы и готовность",
+        version="0.3.0",
         lifespan=lifespan,
         description=(
-            "Загрузка снимков и обработка материала стен. "
+            "Загрузка снимков, материалы стен и готовность строительства. "
             "В деморежиме обученная модель не вызывается."
         ),
     )
@@ -119,27 +122,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(prefix + "/health", tags=["Служебные"])
     def health():
-        return {"status": "ok", "scope": "wall_material", "mock": settings.mock}
+        return {"status": "ok", "scope": "inspection", "mock": settings.mock}
 
     @app.get(prefix + "/meta", tags=["Служебные"])
     def metadata():
+        classes, stages = classes_config(), stages_config()
         return {
-            "scope": "wall_material",
+            "scope": "inspection",
             "mock": settings.mock,
             "capabilities": {
                 "wall_material": True,
                 "material_review": True,
-                "readiness": False,
+                "readiness": True,
+                "readiness_review": True,
                 "risk": False,
                 "conductor": False,
                 "alerts": False,
                 "tasks": False,
-                "history": False,
+                "history": True,
+                "actions": True,
+                "land": False,
+                "valuation": False,
+                "act": False,
                 "registry_import": False,
             },
             "material_model_version": "demo-unavailable@v1"
             if settings.mock
             else "external-adapter",
+            "model_version": "demo-unavailable@v1" if settings.mock else "external-adapter",
+            "model_configured": {
+                "material": not settings.mock and bool(settings.model_factory),
+                "readiness": not settings.mock and bool(settings.detector_factory),
+            },
+            "rules_version": stages.version,
             "materials": [
                 {"id": key, "label": value[0], "group": value[1]}
                 for key, value in MATERIALS.items()
@@ -151,7 +166,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "material_statuses": [
                 {"id": key, "label": label} for key, label in MATERIAL_STATUSES.items()
             ],
-            "views": [{"id": value.value, "label": value.value} for value in View],
+            "material_review_reasons": [
+                {"id": key, "label": label} for key, label in MATERIAL_REVIEW_REASONS.items()
+            ],
+            "views": [item.model_dump() for item in classes.views],
+            "classes": [
+                {"id": item.id, "ml_id": item.ml_id, "label": item.label, "color": item.color}
+                for item in classes.classes
+            ],
+            "stages": [{**item.model_dump(), "order": i} for i, item in enumerate(stages.stages)],
+            "bank_readiness": [item.model_dump() for item in stages.bank_readiness],
+            "reshoot_reasons": [
+                {"id": key, "label": label} for key, label in stages.reshoot_reasons.items()
+            ],
         }
 
     @app.post(prefix + "/objects", status_code=201, tags=["Объекты"])
@@ -160,10 +187,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(prefix + "/objects", tags=["Объекты"])
     def list_objects(
-        page: Annotated[int, Query(ge=1)] = 1, page_size: Annotated[int, Query(ge=1, le=100)] = 20
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+        q: Annotated[str, Query(max_length=500)] = "",
+        stage: Stage | None = None,
+        data_status: Literal["ok", "processing", "review", "reshoot", "no_data"] | None = None,
+        overdue: bool | None = None,
+        pledged: bool | None = None,
+        sort: Literal[
+            "address",
+            "-address",
+            "created_at",
+            "-created_at",
+            "last_flight_at",
+            "-last_flight_at",
+            "readiness_pct",
+            "-readiness_pct",
+        ] = "-created_at",
     ):
         return {
-            **database.objects(page_size, (page - 1) * page_size),
+            **database.objects(
+                page_size,
+                (page - 1) * page_size,
+                q=q,
+                stage=stage,
+                data_status=data_status,
+                overdue=overdue,
+                pledged=pledged,
+                sort=sort,
+            ),
             "page": page,
             "page_size": page_size,
         }
@@ -171,6 +223,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(prefix + "/objects/{object_id}", tags=["Объекты"])
     def get_object(object_id: str):
         return database.object(object_id)
+
+    @app.get(prefix + "/objects/{object_id}/history", tags=["Объекты"])
+    def get_history(object_id: str):
+        return database.history(object_id)
+
+    @app.get(prefix + "/objects/{object_id}/actions", tags=["Объекты"])
+    def get_actions(object_id: str):
+        return database.actions(object_id)
 
     @app.post(prefix + "/objects/{object_id}/flights", status_code=202, tags=["Облёты"])
     def upload_flight(
@@ -234,6 +294,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                 if view is not None:
                     metadata.update(view=view.value, view_source="manual")
+                elif metadata["is_overhead"] and (
+                    role := overhead_view(metadata.get("relative_altitude"))
+                ):
+                    metadata.update(view=role, view_source="exif")
                 if view in TOP_VIEWS:
                     metadata["is_overhead"] = True
                 if manual_meta.gps is not None:
@@ -258,6 +322,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "quality_ok": None,
                     }
                 )
+            suggested = [dict(image) for image in images]
+            assign_facade_sides(suggested)
+            for image, suggestion in zip(images, suggested):
+                image["suggested_view"] = suggestion["view"] if image["view"] is None else None
             dates = [image["taken_at"] for image in images if image["taken_at"]]
             database.enqueue(
                 {
@@ -292,8 +360,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get(prefix + "/flights/{flight_id}/images", tags=["Снимки"])
     def get_images(flight_id: str):
+        detections = database.detections(flight_id)
         return [
-            {key: value for key, value in image.items() if key != "storage_name"}
+            {
+                **{key: value for key, value in image.items() if key != "storage_name"},
+                "detections": detections.get(image["id"], []),
+            }
             for image in database.images(flight_id)
         ]
 
@@ -348,7 +420,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         result = flight["material_result"]
         material = body.material
         if body.action == "accept":
-            if result["is_demo"] or result["material"] not in MATERIALS:
+            if result is None or result["is_demo"] or result["material"] not in MATERIALS:
                 raise ServiceError(
                     409, "MATERIAL_NOT_DETERMINED", "Нет результата модели, который можно принять"
                 )
@@ -364,6 +436,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "source": "employee",
                 }
             ),
+        )
+
+    @app.post(prefix + "/flights/{flight_id}/review", status_code=201, tags=["Проверка"])
+    def review_readiness(
+        flight_id: str,
+        body: ReadinessReview,
+        x_user: Annotated[str, Header(max_length=100)] = "demo",
+    ):
+        flight = database.flight(flight_id)
+        if flight["status"] != "done":
+            raise ServiceError(409, "FLIGHT_NOT_READY", "Дождитесь окончания обработки")
+        values = body.model_dump(mode="json", exclude={"action", "comment"})
+        if body.action == "accept":
+            result = flight["result"]
+            if result is None or result["is_demo"] or result["stage"] is None:
+                raise ServiceError(
+                    409, "STAGE_NOT_DETERMINED", "Нет результата модели, который можно принять"
+                )
+            values = {key: result[key] for key in ("stage", "readiness_pct", "bank_readiness")}
+        return database.add_readiness_review(
+            flight_id,
+            {
+                "action": body.action,
+                **values,
+                "comment": body.comment,
+                "author": x_user,
+                "created_at": utc_now(),
+                "source": "employee",
+            },
         )
 
     return app

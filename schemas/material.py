@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Contract(BaseModel):
@@ -73,9 +73,26 @@ class Loan(Contract):
     tranches: list[Tranche] = Field(default_factory=list)
 
 
+Position = tuple[Annotated[float, Field(ge=-180, le=180)], Annotated[float, Field(ge=-90, le=90)]]
+
+
+class ParcelPolygon(Contract):
+    type: Literal["Polygon"]
+    coordinates: list[list[Position]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_rings(self) -> "ParcelPolygon":
+        for ring in self.coordinates:
+            if len(ring) < 4 or ring[0] != ring[-1]:
+                raise ValueError("Контур участка: минимум 3 точки, первая совпадает с последней")
+        return self
+
+
 class ObjectCreate(Contract):
     address: str = Field(min_length=1, max_length=500)
     cadastral: str | None = Field(default=None, max_length=100)
+    parcel_geojson: ParcelPolygon | None = None
+    vri: str | None = Field(default=None, max_length=100)
     project: Project | None = None
     notes: str = Field(default="", max_length=4000)
     loan_id: str | None = Field(default=None, max_length=100)
@@ -190,6 +207,11 @@ class MaterialReview(Contract):
     action: Literal["accept", "correct"]
     material: WallMaterial | None = None
     comment: str = Field(default="", max_length=4000)
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def normalize_comment(cls, value):
+        return "" if value is None else value
 
     @model_validator(mode="after")
     def validate_correction(self) -> "MaterialReview":

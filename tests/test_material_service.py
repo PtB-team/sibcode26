@@ -134,9 +134,10 @@ def test_object_validation_stays_strict(client, payload):
 
 def test_meta_describes_material_scope_and_display_states(client):
     meta = client.get("/api/v1/meta").json()
-    assert meta["scope"] == "wall_material"
+    assert meta["scope"] == "inspection"
     assert meta["capabilities"]["material_review"] is True
-    assert all(meta["capabilities"][key] is False for key in ("risk", "history", "alerts", "tasks"))
+    assert all(meta["capabilities"][key] is False for key in ("risk", "alerts", "tasks"))
+    assert meta["capabilities"]["history"] and meta["capabilities"]["readiness"]
     assert {"needs_review", "mixed", "model_unavailable"} <= {
         row["id"] for row in meta["material_statuses"]
     }
