@@ -1,0 +1,7 @@
+# датасет YOLO собирается скриптом, веса — по ссылке (README, разделы 2 и 11.1)
+data/
+weights/
+runs/
+*.pt
+*.onnx
+__pycache__/
