@@ -18,3 +18,6 @@ classes:
   - {id: 9,  name: facade_finish,    label_ru: "Отделка фасада",     color: "#B0BEC5", views: [facade]}
   - {id: 10, name: building,         label_ru: "Дом сверху",         color: "#7C4DFF", views: [top_high]}
   - {id: 11, name: paving,           label_ru: "Дорожки и площадки", color: "#757575", views: [top_high]}
+  # Забор — признак начала освоения участка: на пустом участке с забором стройка уже началась.
+  # Размечается на всех ракурсах, включая временные ограждения стройки; длинный забор — отрезками.
+  - {id: 12, name: fence,            label_ru: "Забор",              color: "#FF8A80", views: [facade, top_low, top_high]}

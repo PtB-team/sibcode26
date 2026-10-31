@@ -18,10 +18,9 @@ import shutil
 from pathlib import Path
 
 import torch
-from ultralytics import YOLO
-
 from common import REPO
-from prepare_dataset import DEFAULT_VAL_OBJECTS, build, parse_objects
+from prepare_dataset import DEFAULT_VAL_OBJECTS, _object_key, build, parse_objects
+from ultralytics import YOLO
 
 WEIGHTS_DIR = REPO / "weights"
 RUNS_DIR = REPO / "runs"
@@ -41,6 +40,7 @@ def parse_args() -> argparse.Namespace:
                    help="кэш декодированных снимков: исходники 5280x3956 читаются медленно")
     p.add_argument("--val-objects", default=DEFAULT_VAL_OBJECTS)
     p.add_argument("--exclude-objects", default="")
+    p.add_argument("--include-prelabel", action="store_true", help="учиться и на непроверенных рамках модели")
     p.add_argument("--name", default="readiness", help="папка запуска в runs/")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--export", choices=["onnx", "openvino"], help="формат экспорта лучших весов")
@@ -58,7 +58,8 @@ def resolve_model(model: str) -> str:
 
 def main() -> None:
     args = parse_args()
-    data_yaml = build(parse_objects(args.val_objects), parse_objects(args.exclude_objects))
+    data_yaml = build(parse_objects(args.val_objects), parse_objects(args.exclude_objects),
+                      include_prelabel=args.include_prelabel)
 
     model = YOLO(resolve_model(args.model))
     model.train(
@@ -96,7 +97,7 @@ def main() -> None:
     report = {
         "model": args.model,
         "weights": str(final.relative_to(REPO)),
-        "val_objects": sorted(parse_objects(args.val_objects), key=int),
+        "val_objects": sorted(parse_objects(args.val_objects), key=_object_key),
         "imgsz": args.imgsz,
         "mAP50": round(float(metrics.box.map50), 4),
         "mAP50-95": round(float(metrics.box.map), 4),

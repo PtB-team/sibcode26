@@ -5,3 +5,6 @@ runs/
 *.pt
 *.onnx
 __pycache__/
+
+# кадры и ролики ml/download_drone_dataset.py
+видео/

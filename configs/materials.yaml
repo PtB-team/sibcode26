@@ -1,0 +1,17 @@
+# Материал стен (BACKEND.md, раздел 5.2).
+# Размечается атрибутом рамок walls_partial / walls_full: в метке YOLO — шестой токен строки,
+# в Label Studio — выбор «material» у выделенной рамки. Классификатор материала учится на кропах этих рамок.
+# group — для мягкого сравнения с проектом (раздел 5.5).
+
+wall_classes: [walls_partial, walls_full]
+
+materials:
+  - {id: 0, name: brick,            label_ru: "Кирпич",                 group: stone}
+  - {id: 1, name: aerated_concrete, label_ru: "Газобетон / пеноблок",   group: blocks}
+  - {id: 2, name: ceramic_block,    label_ru: "Керамический блок",      group: blocks}
+  - {id: 3, name: timber,           label_ru: "Брус / бревно",          group: wood}
+  - {id: 4, name: frame,            label_ru: "Каркас (открытый)",      group: wood}
+  - {id: 5, name: sip,              label_ru: "СИП-панели",             group: wood}
+  - {id: 6, name: monolith,         label_ru: "Монолит",                group: concrete}
+  - {id: 7, name: hidden,           label_ru: "Скрыт отделкой / плёнкой", group: null}
+  - {id: 8, name: unclear,          label_ru: "Не определить",          group: null}
