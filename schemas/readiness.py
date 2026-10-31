@@ -46,6 +46,8 @@ class Detection(Contract):
     cls: DetectorClass = Field(alias="class")
     conf: Score
     bbox: BBox
+    target_included: bool = True
+    target_exclusion_reason: Literal["OUTSIDE_TARGET"] | None = None
 
     @model_validator(mode="after")
     def validate_bbox(self) -> "Detection":

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
 from agents.analysis.service import AnalysisService
+from agents.material.config import material_config
 from agents.readiness.config import classes_config, stages_config
 from agents.readiness.views import assign_facade_sides, overhead_view
 from api.config import Settings
@@ -22,6 +23,7 @@ from api.database import Database
 from api.errors import ServiceError
 from api.images import inspect_image
 from api.presentation import MATERIAL_REVIEW_REASONS, MATERIAL_STATUSES
+from api.valuation_database import ValuationRepository
 from schemas.analysis import AnalysisRequest
 from schemas.material import (
     MATERIALS,
@@ -33,6 +35,7 @@ from schemas.material import (
     utc_now,
 )
 from schemas.readiness import ReadinessReview, Stage
+from schemas.valuation import ValuationInputs
 
 
 def parse_list(raw: str | None, count: int, name: str) -> list:
@@ -53,6 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     database = Database(settings.database_path)
     analysis = AnalysisService(settings, database)
+    valuations = ValuationRepository(database)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -61,7 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Мониторинг ИЖС: материалы и готовность",
-        version="0.4.0",
+        version="0.5.0",
         lifespan=lifespan,
         description=(
             "Загрузка снимков, материалы стен и готовность строительства. "
@@ -130,12 +134,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(prefix + "/meta", tags=["Служебные"])
     def metadata():
         classes, stages = classes_config(), stages_config()
+        material_rules = material_config()
         return {
             "scope": "inspection",
+            "material_rules_version": material_rules.version,
+            "material_thresholds": material_rules.thresholds(),
             "mock": settings.mock,
             "capabilities": {
                 "wall_material": True,
                 "material_review": True,
+                "target_region_filter": True,
+                "automatic_target_identification": False,
                 "readiness": True,
                 "readiness_review": True,
                 "risk": False,
@@ -146,7 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "history": True,
                 "actions": True,
                 "land": False,
-                "valuation": False,
+                "valuation": True,
                 "act": False,
                 "registry_import": False,
             },
@@ -246,6 +255,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_object(object_id: str):
         return database.object(object_id)
 
+    @app.get(prefix + "/objects/{object_id}/valuation", tags=["Стоимость строительства"])
+    def get_valuation(object_id: str):
+        return database.object(object_id)["valuation"]
+
+    @app.post(prefix + "/objects/{object_id}/valuation", tags=["Стоимость строительства"])
+    def calculate_cost(
+        object_id: str,
+        body: ValuationInputs | None = None,
+        x_user: Annotated[str, Header(max_length=100)] = "demo",
+    ):
+        result = valuations.calculate(
+            object_id, body.model_dump(mode="json", exclude_unset=True) if body else {}, x_user
+        )
+        analysis.automatic(object_id)
+        return result
+
+    @app.get(prefix + "/objects/{object_id}/valuation/history", tags=["Стоимость строительства"])
+    def valuation_history(object_id: str):
+        return valuations.history(object_id)
+
     @app.get(prefix + "/objects/{object_id}/history", tags=["Объекты"])
     def get_history(object_id: str):
         return database.history(object_id)
@@ -262,6 +291,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         meta: Annotated[str | None, Form()] = None,
         flown_at: Annotated[str | None, Form()] = None,
         target_confirmed: Annotated[bool, Form()] = False,
+        x_user: Annotated[str, Header(max_length=100)] = "demo",
     ):
         directory: Path | None = None
         committed = False
@@ -324,6 +354,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     metadata["is_overhead"] = True
                 if manual_meta.gps is not None:
                     metadata.update(gps=list(manual_meta.gps), gps_source="meta")
+                metadata.update(
+                    target_bbox=manual_meta.target_bbox,
+                    target_region_source="provided" if manual_meta.target_bbox else None,
+                    target_selected_by=x_user if manual_meta.target_bbox else None,
+                    target_selected_at=utc_now() if manual_meta.target_bbox else None,
+                )
                 suffix = ".jpg" if metadata["format"] == "JPEG" else ".png"
                 stored = directory / f"{image_id}{suffix}"
                 path.rename(stored)

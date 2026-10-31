@@ -71,7 +71,9 @@ def annotate(detections: list[Detection], images: list[dict]) -> dict[str, list[
             {
                 **detection.model_dump(mode="json", by_alias=True, exclude={"image_id"}),
                 "label": labels.get(detection.cls, str(detection.cls)),
-                "counted": detection.cls in STAGE_CLASSES and counts_for(detection.cls, group),
+                "counted": detection.target_included
+                and detection.cls in STAGE_CLASSES
+                and counts_for(detection.cls, group),
             }
         )
     return result
@@ -123,7 +125,11 @@ def aggregate(
     per_image_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for detection in detections:
         group, key = groups[detection.image_id]
-        if detection.cls not in STAGE_CLASSES or not counts_for(detection.cls, group):
+        if (
+            not detection.target_included
+            or detection.cls not in STAGE_CLASSES
+            or not counts_for(detection.cls, group)
+        ):
             continue
         if detection.conf > best[detection.cls].get(key, (0.0, ""))[0]:
             best[detection.cls][key] = (detection.conf, detection.image_id)

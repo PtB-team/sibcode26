@@ -5,6 +5,7 @@ from PIL import Image
 
 from api.config import Settings
 from schemas.material import Observation
+from schemas.readiness import Detection
 
 
 class MaterialPredictor(Protocol):
@@ -25,7 +26,16 @@ class DemoPredictor:
         return [Observation(image_id=image_id, visibility="unclear")]
 
 
-def load_predictor(settings: Settings) -> MaterialPredictor:
+class WallMaterialPredictor(Protocol):
+    version: str
+    is_demo: bool
+
+    def predict_walls(
+        self, image: Image.Image, image_id: str, detections: list[Detection]
+    ) -> list[Observation]: ...
+
+
+def load_predictor(settings: Settings) -> MaterialPredictor | WallMaterialPredictor:
     if settings.mock:
         return DemoPredictor()
     if not settings.model_factory:

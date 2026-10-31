@@ -3,6 +3,20 @@
 # в Label Studio — выбор «material» у выделенной рамки. Классификатор материала учится на кропах этих рамок.
 # group — для мягкого сравнения с проектом (раздел 5.5).
 
+version: materials@v2
+# Ненадёжный ответ классификатора становится unclear и не получает голос.
+min_crop_confidence: 0.8
+# Минимальная итоговая уверенность для автоматического закрепления материала дома.
+min_object_confidence: 0.8
+# Это отдельная уверенность детектора в том, что рамка действительно содержит стену.
+min_wall_confidence: 0.6
+min_confirmed_facades: 2
+mixed_material_share: 0.35
+min_cladding_confidence: 0.6
+min_cladding_overlap: 0.5
+# Поле вокруг стены должно совпадать с подготовкой обучающих вырезок.
+crop_margin: 0.1
+
 wall_classes: [walls_partial, walls_full]
 
 materials:

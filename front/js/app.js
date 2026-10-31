@@ -20,6 +20,7 @@ import {
   materialPanel,
 } from "./inspection.js";
 import { analysisPanel } from "./analysis.js";
+import { constructionCostPanel } from "./valuation.js";
 
 const root = document.querySelector("#app"),
   dialog = document.querySelector("#dialog");
@@ -470,7 +471,7 @@ async function inspectionObjectsPage() {
 }
 
 function inspectionHelpers() {
-  return { heading, btn, objectLink, esc, dataBadge, date, label };
+  return { heading, btn, objectLink, esc, dataBadge, date, label, money };
 }
 async function inspectionObjectPage(id) {
   const o = await request(`/objects/${encodeURIComponent(id)}`);
@@ -484,11 +485,15 @@ async function inspectionObjectPage(id) {
     ["photos", "Снимки"],
     ["material", "Материал стен"],
   ];
+  if (supports(meta, "valuation"))
+    tabs.push(["valuation", "Стоимость постройки"]);
   if (supports(meta, "actions")) tabs.push(["journal", "Журнал"]);
   if (!tabs.some(([key]) => key === objectTab)) objectTab = "overview";
   let body;
   if (objectTab === "photos") body = await photosDetail(o);
   else if (objectTab === "material") body = await materialDetail(o);
+  else if (objectTab === "valuation")
+    body = constructionCostPanel(o, inspectionHelpers());
   else if (objectTab === "journal") body = await journalDetail(o);
   else {
     body = readinessDetail(o, inspectionHelpers());
@@ -627,7 +632,7 @@ function newObjectPage() {
       )
       .join(
         "",
-      )}</div></div></div><details><summary>Дополнительно: проект и график стадий</summary><div class="form-grid" style="margin-top:18px"><div class="form-group"><label for="project-material">Материал стен по проекту</label><select name="wall_material" id="project-material">${options("materials", "", "Не указан")}</select></div><div class="form-group"><label for="project-floors">Этажность</label><input class="field" id="project-floors" name="floors" type="number" min="1" max="10"></div><div class="form-group"><label for="project-area">Площадь застройки, м²</label><input class="field" id="project-area" name="footprint_m2" type="number" min="1" step="0.1"></div><div class="form-group"><label for="project-source">Источник проекта</label><input class="field" id="project-source" name="project_source" placeholder="Документ, лист"></div><div class="form-group full"><label>Контрольные точки</label><div id="checkpoint-rows"></div>${btn("Добавить контрольную точку", "add-checkpoint", "small", "plus")}</div></div></details><div class="form-actions"><a href="#/objects" class="btn">Отмена</a><button type="submit" class="btn primary">Добавить объект</button></div></form></section>`
+      )}</div></div></div><details><summary>Дополнительно: проект и график стадий</summary><div class="form-grid" style="margin-top:18px"><div class="form-group"><label for="project-material">Материал стен по проекту</label><select name="wall_material" id="project-material">${options("materials", "", "Не указан")}</select></div><div class="form-group"><label for="project-floors">Этажность</label><input class="field" id="project-floors" name="floors" type="number" min="1" max="10"></div><div class="form-group"><label for="project-area">Площадь застройки, м²</label><input class="field" id="project-area" name="footprint_m2" type="number" min="1" step="0.1"></div><div class="form-group"><label for="project-total-area">Общая площадь дома, м²</label><input class="field" id="project-total-area" name="total_area_m2" type="number" min="0.001" max="1000000" step="0.001"></div><div class="form-group"><label for="project-source">Источник проекта</label><input class="field" id="project-source" name="project_source" placeholder="Документ, лист"></div><div class="form-group full"><label>Контрольные точки</label><div id="checkpoint-rows"></div>${btn("Добавить контрольную точку", "add-checkpoint", "small", "plus")}</div></div></details><div class="form-actions"><a href="#/objects" class="btn">Отмена</a><button type="submit" class="btn primary">Добавить объект</button></div></form></section>`
   );
 }
 function importPage() {
@@ -1325,8 +1330,14 @@ document.addEventListener("submit", async (e) => {
     }
     if (form.id === "valuation-form") {
       const body = {};
-      for (const k of ["land_rub", "collateral_value_rub"])
-        if (fd.get(k) !== "") body[k] = Number(fd.get(k));
+      if (supports(meta, "conductor")) {
+        for (const k of ["land_rub", "collateral_value_rub"])
+          if (fd.get(k) !== "") body[k] = Number(fd.get(k));
+      } else {
+        for (const k of ["area_m2", "unit_cost_rub_m2", "land_rub"])
+          body[k] = fd.get(k) === "" ? null : Number(fd.get(k));
+        body.rate_note = String(fd.get("rate_note") || "").trim();
+      }
       await request(`/objects/${currentObject.id}/valuation`, {
         method: "POST",
         body,
@@ -1352,10 +1363,11 @@ document.addEventListener("submit", async (e) => {
       if (
         fd.get("wall_material") ||
         fd.get("floors") ||
-        fd.get("footprint_m2")
+        fd.get("footprint_m2") ||
+        fd.get("total_area_m2")
       ) {
         body.project = {};
-        for (const k of ["floors", "footprint_m2"])
+        for (const k of ["floors", "footprint_m2", "total_area_m2"])
           if (fd.get(k)) body.project[k] = Number(fd.get(k));
         if (fd.get("wall_material"))
           body.project.wall_material = fd.get("wall_material");

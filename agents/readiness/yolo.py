@@ -27,7 +27,7 @@ class YoloDetector:
         self.version = "yolo:" + weights.name
 
     def detect(self, image, image_id: str) -> list[Detection]:
-        result = self.model.predict(source=image, verbose=False)[0]
+        result = self.model.predict(source=image, imgsz=1280, verbose=False)[0]
         if result.boxes is None:
             return []
         boxes = result.boxes

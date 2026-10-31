@@ -45,8 +45,9 @@ BBox = tuple[Score, Score, Score, Score]
 
 class Project(Contract):
     wall_material: WallMaterial | None = None
-    floors: int | None = Field(default=None, ge=1)
-    footprint_m2: float | None = Field(default=None, gt=0)
+    floors: int | None = Field(default=None, ge=1, le=100)
+    footprint_m2: float | None = Field(default=None, gt=0, le=1000000)
+    total_area_m2: float | None = Field(default=None, gt=0, le=1000000)
     source: str | None = Field(default=None, max_length=1000)
 
 
@@ -145,26 +146,44 @@ class ImageMeta(Contract):
         tuple[Annotated[float, Field(ge=-90, le=90)], Annotated[float, Field(ge=-180, le=180)]]
         | None
     ) = None
+    target_bbox: BBox | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.target_bbox is not None:
+            x1, y1, x2, y2 = self.target_bbox
+            if x2 <= x1 or y2 <= y1:
+                raise ValueError("Область нужного объекта должна иметь положительный размер")
+        return self
 
 
 class Observation(Contract):
     image_id: str
     visibility: Literal["visible", "hidden", "no_walls", "unclear"]
-    material: WallMaterial | None = None
+    material: WallMaterial | Literal["hidden", "unclear"] | None = None
     confidence: Score = 0
     crop_bbox: BBox | None = None
+    cls: Literal["walls_partial", "walls_full"] | None = None
+    bbox: BBox | None = None
+    detector_confidence: Score | None = None
+    material_conf: Score | None = None
+    predicted_material: WallMaterial | Literal["hidden", "unclear"] | None = None
+    review_reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_observation(self) -> "Observation":
         if self.visibility == "visible":
-            if self.material is None or self.crop_bbox is None:
+            if self.material not in MATERIALS or self.crop_bbox is None:
                 raise ValueError("Для видимой стены нужны материал и рамка")
-        elif self.material is not None:
+        elif self.material not in {None, self.visibility} or (
+            self.visibility == "no_walls" and self.material is not None
+        ):
             raise ValueError("Скрытой или отсутствующей стене нельзя назначать материал")
-        if self.crop_bbox:
-            x1, y1, x2, y2 = self.crop_bbox
-            if x2 <= x1 or y2 <= y1:
-                raise ValueError("Рамка должна иметь положительную ширину и высоту")
+        for box in (self.crop_bbox, self.bbox):
+            if box:
+                x1, y1, x2, y2 = box
+                if x2 <= x1 or y2 <= y1:
+                    raise ValueError("Рамка должна иметь положительную ширину и высоту")
         return self
 
 
@@ -179,6 +198,8 @@ class MaterialResult(Contract):
     agent: Literal["material"] = "material"
     model: str
     is_demo: bool
+    rules: str | None = None
+    thresholds: dict[str, float | int] = Field(default_factory=dict)
     status: Literal[
         "determined",
         "hidden",

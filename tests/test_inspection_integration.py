@@ -134,6 +134,8 @@ def test_manual_readiness_without_model_updates_card_history_and_filters(client,
 
 
 def test_yolo_maps_names_from_weights_instead_of_enum_order(tmp_path, monkeypatch):
+    calls = []
+
     class Tensor:
         def __init__(self, values):
             self.values = values
@@ -149,13 +151,14 @@ def test_yolo_maps_names_from_weights_instead_of_enum_order(tmp_path, monkeypatc
     )
     model = SimpleNamespace(
         names={0: "paving", 11: "walls_full"},
-        predict=lambda **kwargs: [SimpleNamespace(boxes=boxes)],
+        predict=lambda **kwargs: calls.append(kwargs) or [SimpleNamespace(boxes=boxes)],
     )
     monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(YOLO=lambda _: model))
     weights = tmp_path / "test.pt"
     weights.write_bytes(b"test")
     result = YoloDetector(weights).detect(Image.new("RGB", (10, 10)), "img_test")
     assert [row.cls for row in result] == ["paving", "walls_full"]
+    assert calls[0]["imgsz"] == 1280
 
 
 def test_yolo_requires_existing_local_weights(tmp_path):
