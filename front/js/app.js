@@ -19,6 +19,7 @@ import {
   readinessDetail,
   materialPanel,
 } from "./inspection.js";
+import { analysisPanel } from "./analysis.js";
 
 const root = document.querySelector("#app"),
   dialog = document.querySelector("#dialog");
@@ -474,6 +475,10 @@ function inspectionHelpers() {
 async function inspectionObjectPage(id) {
   const o = await request(`/objects/${encodeURIComponent(id)}`);
   currentObject = o;
+  if (supports(meta, "gigachat_analysis"))
+    o.ai_analysis = await request(
+      `/objects/${encodeURIComponent(id)}/analysis`,
+    );
   const tabs = [
     ["overview", "Обзор"],
     ["photos", "Снимки"],
@@ -487,6 +492,8 @@ async function inspectionObjectPage(id) {
   else if (objectTab === "journal") body = await journalDetail(o);
   else {
     body = readinessDetail(o, inspectionHelpers());
+    if (o.ai_analysis)
+      body += analysisPanel(o.ai_analysis, inspectionHelpers());
     if (supports(meta, "history")) {
       const history = await request(
         `/objects/${encodeURIComponent(id)}/history`,
@@ -549,6 +556,7 @@ function schedulePoll(o) {
   clearTimeout(pollTimer);
   if (
     o.conductor?.llm_status === "pending" ||
+    o.ai_analysis?.llm_status === "pending" ||
     ["queued", "processing"].includes(o.last_flight?.status)
   ) {
     const token = routeToken;
@@ -558,6 +566,16 @@ function schedulePoll(o) {
         return;
       }
       try {
+        if (o.ai_analysis?.llm_status === "pending") {
+          const summary = await request(`/objects/${o.id}/analysis`);
+          if (
+            summary.llm_status !== "pending" ||
+            summary.analysis_id !== o.ai_analysis.analysis_id
+          ) {
+            await render(true);
+            return;
+          }
+        }
         if (o.conductor?.llm_status === "pending") {
           const c = await request(`/objects/${o.id}/conductor`);
           if (c.llm_status !== o.conductor.llm_status) {
@@ -1084,6 +1102,15 @@ document.addEventListener("click", async (e) => {
         );
       } else
         toast("Дирижёр сейчас не ожидает ручную проверку. Обновите карточку.");
+      return;
+    }
+    if (action === "analysis-request") {
+      el.disabled = true;
+      await request(`/objects/${currentObject.id}/analysis`, {
+        method: "POST",
+        body: {},
+      });
+      await render();
       return;
     }
     if (action === "material-accept") {

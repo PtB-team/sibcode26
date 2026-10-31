@@ -1,5 +1,6 @@
 import logging
 
+from agents.analysis.service import AnalysisService
 from agents.material.aggregation import aggregate
 from agents.material.model import DemoPredictor, MaterialPredictor, load_predictor
 from agents.readiness import aggregation as readiness
@@ -20,10 +21,13 @@ class Worker:
         settings: Settings,
         predictor: MaterialPredictor | None = None,
         detector: Detector | None = None,
+        analysis_client=None,
     ) -> None:
         self.settings = settings
         self.database = Database(settings.database_path)
         self.database.initialize()
+        self.analysis = AnalysisService(settings, self.database, client=analysis_client)
+        self._analysis_next = False
         self.load_errors: dict[str, dict] = {}
         self.predictor = (
             predictor
@@ -60,9 +64,13 @@ class Worker:
             return model
 
     def process_one(self) -> bool:
+        if self._analysis_next and self.analysis.process_one():
+            self._analysis_next = False
+            return True
         job = self.database.claim(self.settings.job_lease_seconds)
         if job is None:
-            return False
+            return self.analysis.process_one()
+        self._analysis_next = True
         flight_id, token = job
         errors = dict(self.load_errors)
         try:
@@ -134,7 +142,7 @@ class Worker:
                 stage.explanation = (
                     "Готовность не определена: " + errors["readiness"]["message"] + "."
                 )
-            self.database.finish(
+            saved = self.database.finish(
                 flight_id,
                 token,
                 result=result.model_dump(mode="json"),
@@ -142,6 +150,8 @@ class Worker:
                 detections=readiness.annotate(detections, images),
                 module_errors=errors,
             )
+            if saved:
+                self.analysis.automatic(flight["object_id"])
             logger.info("flight_done flight_id=%s modules_failed=%s", flight_id, list(errors))
         except Exception:
             logger.exception("flight_failed flight_id=%s", flight_id)
@@ -155,6 +165,9 @@ class Worker:
                 },
             )
         return True
+
+    def close(self) -> None:
+        self.analysis.close()
 
     @staticmethod
     def _inference_error(name: str, errors: dict) -> None:

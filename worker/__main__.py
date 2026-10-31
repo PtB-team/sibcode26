@@ -7,8 +7,10 @@ from worker.service import Worker
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Process queued wall-material inspections")
-    parser.add_argument("--once", action="store_true", help="Process at most one flight and exit")
+    parser = argparse.ArgumentParser(description="Process queued inspections and AI summaries")
+    parser.add_argument(
+        "--once", action="store_true", help="Process at most one queued job and exit"
+    )
     arguments = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     worker = Worker(Settings.from_env())
@@ -21,6 +23,8 @@ def main() -> None:
                 time.sleep(1)
     except KeyboardInterrupt:
         logging.info("Worker stopped")
+    finally:
+        worker.close()
 
 
 if __name__ == "__main__":

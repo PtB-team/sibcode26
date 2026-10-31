@@ -68,6 +68,17 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     flight_id TEXT NOT NULL REFERENCES flights(id), payload TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS analyses (
+                    id TEXT PRIMARY KEY, object_id TEXT NOT NULL REFERENCES objects(id),
+                    fingerprint TEXT NOT NULL, context TEXT NOT NULL, requested_model TEXT NOT NULL,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+                    status TEXT NOT NULL, llm_status TEXT NOT NULL,
+                    recommendation TEXT, raw_response TEXT, response_model TEXT, usage TEXT,
+                    error_code TEXT, error_message TEXT,
+                    lease_token TEXT, lease_until REAL, attempts INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS analyses_queue ON analyses(status, created_at);
+                CREATE INDEX IF NOT EXISTS analyses_object ON analyses(object_id, created_at DESC);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(flights)")}
             for column in ("readiness", "detections", "module_errors"):
