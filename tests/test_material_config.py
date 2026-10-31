@@ -75,6 +75,7 @@ def test_object_threshold_is_separate_from_crop_threshold(monkeypatch):
         ("min_wall_confidence", -0.1),
         ("min_confirmed_facades", 5),
         ("mixed_material_share", 0.7),
+        ("min_crop_px", 0),
     ],
 )
 def test_invalid_threshold_config_is_rejected(field, value):

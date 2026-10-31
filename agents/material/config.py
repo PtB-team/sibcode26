@@ -29,6 +29,7 @@ class MaterialConfig(Contract):
     min_cladding_confidence: Score
     min_cladding_overlap: PositiveScore
     crop_margin: float = Field(ge=0, le=0.5)
+    min_crop_px: int = Field(ge=1, le=1024)
     wall_classes: list[Literal["walls_partial", "walls_full"]] = Field(min_length=1)
     materials: list[MaterialLabel]
 
@@ -44,7 +45,9 @@ class MaterialConfig(Contract):
         return self
 
     def thresholds(self) -> dict:
-        return self.model_dump(exclude={"version", "wall_classes", "materials", "crop_margin"})
+        return self.model_dump(
+            exclude={"version", "wall_classes", "materials", "crop_margin", "min_crop_px"}
+        )
 
 
 @lru_cache
