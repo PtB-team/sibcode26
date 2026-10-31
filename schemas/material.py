@@ -167,6 +167,7 @@ class Observation(Contract):
     bbox: BBox | None = None
     detector_confidence: Score | None = None
     material_conf: Score | None = None
+    predicted_material: WallMaterial | Literal["hidden", "unclear"] | None = None
     review_reasons: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -197,6 +198,8 @@ class MaterialResult(Contract):
     agent: Literal["material"] = "material"
     model: str
     is_demo: bool
+    rules: str | None = None
+    thresholds: dict[str, float | int] = Field(default_factory=dict)
     status: Literal[
         "determined",
         "hidden",

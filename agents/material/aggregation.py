@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+from agents.material.config import material_config
 from schemas.material import (
     FACADES,
     MATERIALS,
@@ -22,6 +23,7 @@ def aggregate(
     target_confirmed: bool,
 ) -> MaterialResult:
     """Combine wall evidence, keeping unavailable or conflicting results explicit."""
+    rules = material_config()
     image_by_id = {image["id"]: image for image in images}
     # One facade cannot get extra votes just because it was photographed more often.
     strongest: dict[tuple[str, str], tuple[float, float]] = {}
@@ -29,6 +31,7 @@ def aggregate(
     non_top = []
     for observation in observations:
         image = image_by_id[observation.image_id]
+        observation.included = False
         observation.view = View(image["view"]) if image["view"] else None
         if image["is_overhead"] or image["view"] in TOP_VIEWS:
             observation.exclusion_reason = "TOP_VIEW"
@@ -36,13 +39,23 @@ def aggregate(
         if observation.exclusion_reason == "OUTSIDE_TARGET":
             continue
         non_top.append(observation)
+        if observation.material_conf is not None:
+            observation.confidence = observation.material_conf
+        if (
+            observation.visibility == "visible" or observation.material_conf is not None
+        ) and observation.confidence < rules.min_crop_confidence:
+            if observation.predicted_material is None:
+                observation.predicted_material = observation.material
+            observation.material, observation.visibility = "unclear", "unclear"
+            observation.exclusion_reason = "LOW_CONFIDENCE"
+            continue
         if observation.visibility != "visible":
             observation.exclusion_reason = observation.visibility.upper()
             continue
-        if observation.confidence < 0.6:
-            observation.exclusion_reason = "LOW_CONFIDENCE"
-            continue
-        if observation.detector_confidence is not None and observation.detector_confidence < 0.6:
+        if (
+            observation.detector_confidence is not None
+            and observation.detector_confidence < rules.min_wall_confidence
+        ):
             observation.exclusion_reason = "LOW_DETECTOR_CONFIDENCE"
             continue
         observation.included = True
@@ -59,6 +72,8 @@ def aggregate(
     result = MaterialResult(
         model=model,
         is_demo=is_demo,
+        rules=rules.version,
+        thresholds=rules.thresholds(),
         status="insufficient_data",
         project_material=project_material,
         match="no_project" if project_material is None else "unclear",
@@ -102,15 +117,15 @@ def aggregate(
     result.confidence = round(min(weights[winner] / total, mean_confidence), 6)
     result.material = WallMaterial(winner)
     result.material_label, result.group = MATERIALS[winner]
-    result.mixed = len(ranking) > 1 and weights[ranking[1]] / total >= 0.35
+    result.mixed = len(ranking) > 1 and weights[ranking[1]] / total >= rules.mixed_material_share
     if result.mixed:
         result.status = "mixed"
         result.review_reasons.append("CONFLICTING_MATERIALS")
     else:
         result.status = "determined"
-    if len(facades[winner]) < 2:
+    if len(facades[winner]) < rules.min_confirmed_facades:
         result.review_reasons.append("FEW_CONFIRMED_FACADES")
-    if result.confidence < 0.8:
+    if result.confidence < rules.min_object_confidence:
         result.review_reasons.append("LOW_CONFIDENCE")
     if not target_confirmed:
         result.review_reasons.append("TARGET_NOT_CONFIRMED")

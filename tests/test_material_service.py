@@ -435,7 +435,11 @@ def test_conflicting_and_low_confidence_materials_are_not_fixed():
         project_material=None,
         target_confirmed=True,
     )
-    assert result.status == "needs_review" and result.confidence == 0.61
+    assert result.status == "insufficient_data" and result.votes == {}
+    assert all(
+        item.material == "unclear" and item.predicted_material == "brick"
+        for item in result.per_view
+    )
 
 
 @pytest.mark.parametrize("visibility,expected", [("hidden", "hidden"), ("no_walls", "no_walls")])

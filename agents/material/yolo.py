@@ -3,15 +3,15 @@
 import os
 from pathlib import Path
 
+from agents.material.config import material_config
 from agents.targeting import overlap_fraction
 from schemas.material import MATERIALS, Observation
-
-WALLS = {"walls_partial", "walls_full"}
 
 
 def padded_bbox(box: tuple) -> tuple:
     x1, y1, x2, y2 = box
-    mx, my = (x2 - x1) * 0.1, (y2 - y1) * 0.1
+    margin = material_config().crop_margin
+    mx, my = (x2 - x1) * margin, (y2 - y1) * margin
     return max(0, x1 - mx), max(0, y1 - my), min(1, x2 + mx), min(1, y2 + my)
 
 
@@ -24,6 +24,7 @@ class YoloMaterialPredictor:
         from ultralytics import YOLO
 
         self.model = YOLO(str(weights))
+        self.rules = material_config()
         self.names = (
             dict(enumerate(self.model.names))
             if isinstance(self.model.names, list)
@@ -36,7 +37,9 @@ class YoloMaterialPredictor:
         self.version = "yolo-material:" + weights.name
 
     def predict_walls(self, image, image_id: str, detections: list) -> list[Observation]:
-        walls = [row for row in detections if row.cls in WALLS and row.target_included]
+        walls = [
+            row for row in detections if row.cls in self.rules.wall_classes and row.target_included
+        ]
         if not walls:
             return [Observation(image_id=image_id, visibility="no_walls")]
         width, height = image.size
@@ -48,14 +51,17 @@ class YoloMaterialPredictor:
                 probs = self.model.predict(source=crop, imgsz=384, verbose=False)[0].probs
             if probs is None:
                 raise ValueError("Классификатор не вернул вероятности материала")
-            material = self.names[int(probs.top1)]
+            predicted_material = self.names[int(probs.top1)]
             confidence = float(probs.top1conf)
+            material = (
+                predicted_material if confidence >= self.rules.min_crop_confidence else "unclear"
+            )
             reasons = []
             if material == "brick" and any(
                 row.cls == "facade_finish"
                 and row.target_included
-                and row.conf >= 0.6
-                and overlap_fraction(wall.bbox, row.bbox) >= 0.5
+                and row.conf >= self.rules.min_cladding_confidence
+                and overlap_fraction(wall.bbox, row.bbox) >= self.rules.min_cladding_overlap
                 for row in detections
             ):
                 reasons.append("CLADDING_MAY_HIDE_STRUCTURE")
@@ -67,6 +73,7 @@ class YoloMaterialPredictor:
                     crop_bbox=crop_box,
                     detector_confidence=wall.conf,
                     material_conf=confidence,
+                    predicted_material=predicted_material,
                     confidence=confidence,
                     material=material,
                     visibility=material if material in {"hidden", "unclear"} else "visible",

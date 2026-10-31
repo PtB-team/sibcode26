@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
 from agents.analysis.service import AnalysisService
+from agents.material.config import material_config
 from agents.readiness.config import classes_config, stages_config
 from agents.readiness.views import assign_facade_sides, overhead_view
 from api.config import Settings
@@ -133,8 +134,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get(prefix + "/meta", tags=["Служебные"])
     def metadata():
         classes, stages = classes_config(), stages_config()
+        material_rules = material_config()
         return {
             "scope": "inspection",
+            "material_rules_version": material_rules.version,
+            "material_thresholds": material_rules.thresholds(),
             "mock": settings.mock,
             "capabilities": {
                 "wall_material": True,
