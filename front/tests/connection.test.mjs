@@ -6,7 +6,11 @@ import {
   selectableMaterials,
   percent,
 } from "../js/capabilities.js";
-import { materialPanel, readinessDetail } from "../js/inspection.js";
+import {
+  materialPanel,
+  readinessDetail,
+  materialConfidenceText,
+} from "../js/inspection.js";
 import { analysisPanel } from "../js/analysis.js";
 
 test("Inspection connects without bank dictionaries", () => {
@@ -51,6 +55,66 @@ const ui = {
   label: (group, value) => value,
   date: (value) => value || "—",
 };
+
+test("Material and wall confidence remain distinct on crop cards", () => {
+  const observation = {
+    cls: "walls_full",
+    conf: 0.6,
+    detector_confidence: 0.6,
+    material: "brick",
+    material_conf: 0.96,
+    confidence: 0.96,
+    crop_url: "/crop.jpg",
+    view: "N",
+  };
+  assert.equal(
+    materialConfidenceText(observation),
+    "Материал: 96% · Стена: 60%",
+  );
+  const html = materialPanel(
+    {
+      last_flight: {
+        status: "done",
+        material_result: {
+          material: "brick",
+          material_label: "Кирпич",
+          status: "needs_review",
+          is_demo: false,
+          per_view: [observation],
+        },
+      },
+    },
+    { capabilities: {} },
+    ui,
+  );
+  assert.match(html, /Материал: 96% · Стена: 60%/);
+  assert.doesNotMatch(html, /Уверенность 60%/);
+});
+
+test("Confidence captions support the ML format, legacy crops and unclassified tiny walls", () => {
+  assert.equal(
+    materialConfidenceText({
+      cls: "walls_full",
+      conf: 0.6,
+      material_conf: 0.96,
+    }),
+    "Материал: 96% · Стена: 60%",
+  );
+  assert.equal(materialConfidenceText({ conf: 0.91 }), "Материал: 91%");
+  assert.equal(
+    materialConfidenceText({ confidence: 0.92, material_conf: null }),
+    "Материал: 92%",
+  );
+  assert.equal(
+    materialConfidenceText({
+      cls: "walls_full",
+      material_conf: null,
+      confidence: 0,
+      detector_confidence: 0.9,
+    }),
+    "Материал: Не указана · Стена: 90%",
+  );
+});
 test("Unfixed material remains visible", () => {
   const html = materialPanel(
     {

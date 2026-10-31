@@ -18,6 +18,7 @@ import {
   inspectionOverview,
   readinessDetail,
   materialPanel,
+  materialConfidenceText,
 } from "./inspection.js";
 import { analysisPanel } from "./analysis.js";
 import { constructionCostPanel } from "./valuation.js";
@@ -427,7 +428,7 @@ async function materialDetail(o) {
       const w = x2 - x1,
         h = y2 - y1;
       if (!(w > 0 && h > 0)) return "";
-      return `<div><div class="wall-crop" style="aspect-ratio:${(w * (im.width || 1)) / (h * (im.height || 1))}"><img src="${esc(im.url)}" alt="Кроп стены: ${esc(label("views", v.view))}" style="width:${100 / w}%;left:${(-x1 / w) * 100}%;top:${(-y1 / h) * 100}%"></div><p style="margin-top:8px">${esc(label("views", v.view))} · ${esc(label("materials", v.class))}</p><p class="subtle">Уверенность ${Math.round(v.conf * 100)}%</p></div>`;
+      return `<div><div class="wall-crop" style="aspect-ratio:${(w * (im.width || 1)) / (h * (im.height || 1))}"><img src="${esc(im.url)}" alt="Кроп стены: ${esc(label("views", v.view))}" style="width:${100 / w}%;left:${(-x1 / w) * 100}%;top:${(-y1 / h) * 100}%"></div><p style="margin-top:8px">${esc(label("views", v.view))} · ${esc(label("materials", v.class))}</p><p class="subtle">${materialConfidenceText(v)}</p></div>`;
     })
     .join("");
   return `<div class="section-block panel"><div class="panel-head"><h2>Материал стен</h2>${m ? `<span class="badge">Уверенность ${Math.round((m.confidence || 0) * 100)}%</span>` : ""}</div><div class="panel-body">${m ? `<div class="comparison-grid" style="border-top:0"><div class="comparison-cell"><p>По проекту</p><h3>${m.project ? esc(label("materials", m.project)) : "Проект не загружен"}</h3></div><div class="comparison-cell"><p>По облёту</p><h3>${esc(label("materials", m.observed))}</h3><small>Закреплён по облёту ${esc(m.fixed_at_flight_id)}</small></div></div>${m.match === "mismatch" ? `<div class="risk-explanation" style="--risk-color:${color("red")};margin-top:18px">${icon("alert")}<div><strong>Материал не соответствует проекту</strong>Подтвердите расхождение после проверки снимков.<div class="action-buttons" style="margin-top:12px">${btn("Подтвердить", "material-confirm", "small primary")}${btn("Ложная тревога", "material-reject", "small")}</div></div></div>` : ""}${crops ? `<div class="gallery" style="margin-top:20px">${crops}</div>` : '<p class="subtle" style="margin-top:18px">Фрагменты фасадов появятся после обработки снимков открытых стен.</p>'}` : empty("Материал не определён", "Дождитесь облёта со снимками открытых стен.", "image")}</div></div>`;

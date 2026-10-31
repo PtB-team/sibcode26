@@ -1,5 +1,20 @@
 import { percent } from "./capabilities.js";
 
+export function materialConfidenceText(observation) {
+  const separate =
+    observation.cls != null || observation.detector_confidence != null;
+  const notClassified = separate && observation.material_conf === null;
+  const material = notClassified
+    ? null
+    : (observation.material_conf ??
+      observation.confidence ??
+      (separate ? null : observation.conf));
+  const detector =
+    observation.detector_confidence ??
+    (observation.cls != null ? observation.conf : null);
+  return `Материал: ${percent(material)}${detector == null ? "" : ` · Стена: ${percent(detector)}`}`;
+}
+
 const readinessStates = {
   determined: "Готовность определена",
   needs_review: "Нужна проверка",
@@ -53,7 +68,7 @@ export function materialPanel(o, meta, ui) {
     .filter((v) => v.crop_url)
     .map(
       (v) =>
-        `<div><a href="${esc(v.crop_url)}" target="_blank" rel="noopener"><img style="width:100%" src="${esc(v.crop_url)}" alt="Фрагмент стены"></a><p>${esc(v.view ? label("views", v.view) : "Ракурс не указан")} · ${esc(label("materials", v.class || v.material))}</p><p class="subtle">Материал: ${percent(v.material_conf ?? v.confidence ?? v.conf)}${v.detector_confidence != null ? ` · Стена: ${percent(v.detector_confidence)}` : ""}</p></div>`,
+        `<div><a href="${esc(v.crop_url)}" target="_blank" rel="noopener"><img style="width:100%" src="${esc(v.crop_url)}" alt="Фрагмент стены"></a><p>${esc(v.view ? label("views", v.view) : "Ракурс не указан")} · ${esc(label("materials", v.class || v.material))}</p><p class="subtle">${materialConfidenceText(v)}</p></div>`,
     )
     .join("");
   return `<section class="panel"><div class="panel-head"><h2>Материал стен</h2><span>${esc(state)}</span></div><div class="panel-body"><dl class="facts"><dt>По проекту</dt><dd>${project ? esc(label("materials", project)) : "Не задан"}</dd><dt>Закреплённый материал</dt><dd>${fixed ? esc(label("materials", fixed.observed)) : "Пока не закреплён"}</dd><dt>Последнее распознавание</dt><dd>${result ? esc(result.material_label) : "Нет результата"}</dd><dt>Уверенность</dt><dd>${result?.is_demo ? "Модель недоступна" : percent(result?.confidence)}</dd></dl>${fixed ? `<p style="margin-top:12px">${fixed.reviewed ? "Материал проверен сотрудником" : "Материал закреплён автоматически"}. ${fixed.match === "mismatch" ? "Материал отличается от проекта." : fixed.match === "match" ? "Материал совпадает с проектом." : ""}</p>` : ""}<p style="margin-top:16px">${esc(result?.explanation || "Загрузите снимки открытых стен.")}</p>${result?.review_reasons?.length ? `<p class="subtle">${result.review_reasons.map((code) => esc(label("material_review_reasons", code))).join("; ")}</p>` : ""}${crops ? `<div class="gallery" style="margin-top:20px">${crops}</div>` : ""}<div class="action-buttons" style="margin-top:20px">${f?.status === "done" && result && !result.is_demo && !["hidden", "unclear"].includes(result.material) ? btn("Принять материал", "material-accept", "primary small") : ""}${f?.status === "done" && meta.capabilities.material_review ? btn("Указать материал вручную", "material-correct", "small") : ""}</div></div></section>`;
