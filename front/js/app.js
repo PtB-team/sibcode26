@@ -9,6 +9,16 @@ import {
 import { DEMO_DATE, resetDemo } from "./mock.js";
 import { readRegistry } from "./import.js";
 import { progressChart } from "./chart.js";
+import {
+  normalizeMeta,
+  supports,
+  selectableMaterials,
+} from "./capabilities.js";
+import {
+  inspectionOverview,
+  readinessDetail,
+  materialPanel,
+} from "./inspection.js";
 
 const root = document.querySelector("#app"),
   dialog = document.querySelector("#dialog");
@@ -46,7 +56,7 @@ const dataStates = {
   review: ["shield", "Нужна проверка"],
   reshoot: ["refresh", "На пересъёмку"],
   processing: ["clock", "Обрабатывается"],
-  no_data: ["image", "Нет облёта"],
+  no_data: ["image", "Нет результата"],
 };
 const strategyStates = {
   waiting: "Ожидает шага",
@@ -155,8 +165,12 @@ async function submit(form, callback) {
 async function refresh() {
   [objects, alerts, tasks] = await Promise.all([
     allObjects(),
-    request("/alerts?page_size=100").then(listItems),
-    request("/tasks?page_size=100").then(listItems),
+    supports(meta, "alerts")
+      ? request("/alerts?page_size=100").then(listItems)
+      : [],
+    supports(meta, "tasks")
+      ? request("/tasks?page_size=100").then(listItems)
+      : [],
   ]);
 }
 function navigation() {
@@ -170,13 +184,14 @@ function navigation() {
     ["tasks", "tasks", "Задачи"],
     ["flights", "drone", "Облёты"],
   ]
+    .filter(([key]) => key !== "tasks" || supports(meta, "tasks"))
     .map(
       ([key, ic, title]) =>
         `<a href="#/${key}" class="${route === key ? "active" : ""}" ${route === key ? 'aria-current="page"' : ""}>${icon(ic)}${title}${key === "tasks" ? `<span class="nav-count">${tasks.length}</span>` : ""}</a>`,
     )
     .join("")}</nav>
-  <div class="sidebar-bottom">${btn("Как это работает", "help", "ghost", "help")}${btn("Подключение и профиль", "settings", "ghost", "settings")}<div class="system-status"><strong><span class="dot" style="color:${meta.mock ? "#ad7819" : "#168149"}"></span>${meta.mock ? "Демонстрационный режим" : "Подключено к API"}</strong>${meta.mock ? "Синтетические данные для демо" : "Данные получены с сервера"}</div></div></aside>
-  <div class="main-wrap"><header class="topbar"><div class="row">${btn('<span class="sr-only">Открыть меню</span>', "menu", "ghost icon-button mobile-menu", "menu")}<div class="breadcrumb"><span>Мониторинг ИЖС</span>${icon("chevron")}<strong>${esc({ overview: "Рабочий стол", objects: "Объекты", tasks: "Задачи", flights: "Облёты", import: "Импорт реестра", new: "Новый объект", upload: "Загрузка облёта", act: "Акт осмотра" }[route] || "Объект")}</strong></div></div><div class="topbar-right"><form id="global-search" class="searchbox" role="search">${icon("search")}<input name="q" aria-label="Поиск объекта" placeholder="Адрес, кадастр или кредит"></form>${meta.mock ? `<span class="demo-tag">${icon("info")}Демо-данные</span>` : '<span class="live-status">Данные API</span>'}<button class="btn ghost user-block" data-action="settings" aria-label="Профиль: ${esc(name)}"><span>${esc(name)}</span><span class="avatar">${esc(
+  <div class="sidebar-bottom">${btn("Как это работает", "help", "ghost", "help")}${btn("Подключение и профиль", "settings", "ghost", "settings")}<div class="system-status"><strong><span class="dot" style="color:${meta.mock ? "#ad7819" : "#168149"}"></span>${settings().mode === "demo" ? "Демонстрационный режим" : meta.mock ? "Модели не подключены" : "Подключено к API"}</strong>${settings().mode === "demo" ? "Синтетические данные для демо" : meta.mock ? "Фотографии сохраняются, модели не подключены" : "Данные получены с сервера"}</div></div></aside>
+  <div class="main-wrap"><header class="topbar"><div class="row">${btn('<span class="sr-only">Открыть меню</span>', "menu", "ghost icon-button mobile-menu", "menu")}<div class="breadcrumb"><span>Мониторинг ИЖС</span>${icon("chevron")}<strong>${esc({ overview: "Рабочий стол", objects: "Объекты", tasks: "Задачи", flights: "Облёты", import: "Импорт реестра", new: "Новый объект", upload: "Загрузка облёта", act: "Акт осмотра" }[route] || "Объект")}</strong></div></div><div class="topbar-right"><form id="global-search" class="searchbox" role="search">${icon("search")}<input name="q" aria-label="Поиск объекта" placeholder="Адрес, кадастр или кредит"></form>${settings().mode === "demo" ? `<span class="demo-tag">${icon("info")}Демо-данные</span>` : '<span class="live-status">Данные API</span>'}<button class="btn ghost user-block" data-action="settings" aria-label="Профиль: ${esc(name)}"><span>${esc(name)}</span><span class="avatar">${esc(
     name
       .split(" ")
       .map((s) => s[0])
@@ -185,7 +200,7 @@ function navigation() {
   )}</span></button></div></header><main id="main" tabindex="-1" class="content"></main></div>`;
 }
 function footer() {
-  return `<footer class="page-footer"><span>Дрон-мониторинг ИЖС · Прототип</span><span>${meta.mock ? "Демонстрационный срез на 31 октября 2026" : "Данные подключённого API"} · ${esc(meta.rules_version || "")}</span></footer>`;
+  return `<footer class="page-footer"><span>Дрон-мониторинг ИЖС · Прототип</span><span>${settings().mode === "demo" ? "Демонстрационный срез на 31 октября 2026" : "Данные подключённого API"} · ${esc(meta.rules_version || "")}</span></footer>`;
 }
 function heading(title, subtitle, actions = "") {
   return `<div class="page-header"><div><h1>${title}</h1>${subtitle ? `<p>${subtitle}</p>` : ""}</div><div class="header-actions">${actions}</div></div>`;
@@ -214,6 +229,8 @@ function compactTask(t) {
   return `<article class="task-item"><span class="task-symbol">${icon(t.step.code === "COMM_REASON" ? "phone" : t.step.code === "CONFIRM_STRATEGY" ? "shield" : "tasks")}</span><div class="task-content"><h3>${esc(t.step.label)}</h3><p>${esc(t.address)}</p>${objectLink(t.object_id, t.strategy ? `Рассмотреть ${esc(t.strategy.code)} ${icon("arrow")}` : `Перейти к задаче ${icon("arrow")}`)}</div></article>`;
 }
 function overview() {
+  if (!supports(meta, "risk"))
+    return inspectionOverview(objects, inspectionHelpers());
   const filtered = alerts.filter(
     (a) =>
       alertFilter === "all" ||
@@ -259,7 +276,7 @@ function strategySummary() {
 function options(group, value, placeholder) {
   return (
     `<option value="">${placeholder}</option>` +
-    (meta[group] || [])
+    (group === "materials" ? selectableMaterials(meta) : meta[group] || [])
       .map(
         (s) =>
           `<option value="${esc(s.id)}" ${String(value) === String(s.id) ? "selected" : ""}>${esc(s.label)}</option>`,
@@ -268,6 +285,7 @@ function options(group, value, placeholder) {
   );
 }
 async function objectsPage() {
+  if (!supports(meta, "risk")) return inspectionObjectsPage();
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(filters))
     if (v !== "" && v != null) p.set(k, v);
@@ -381,23 +399,16 @@ function overviewDetail(o, history) {
   }${meta.mock ? '<p class="subtle" style="margin-top:16px">В демо результат задан заранее. Загруженные фотографии доступны для просмотра, но не анализируются.</p>' : ""}</div></section></div><div class="stack">${strategyBlock(o)}<section class="panel"><div class="panel-head"><h2>Кредит и строительство</h2></div><div class="panel-body"><dl class="facts"><dt>Сумма кредита</dt><dd>${money(o.loan?.amount)}</dd><dt>Начало строительства</dt><dd>${date(o.started_at)}</dd><dt>Плановое завершение</dt><dd>${date(o.planned_completion_at)}</dd><dt>Осталось срока</dt><dd>${o.term_left_pct < 0 ? "Срок истёк" : `${o.term_left_pct ?? "—"}%`}</dd><dt>Просроченная задолженность</dt><dd>${o.overdue ? "Есть" : "Нет"}</dd><dt>Залог</dt><dd>${o.pledged ? "Оформлен" : "Не оформлен"}</dd><dt>Регистрация</dt><dd>${o.registered ? "Зарегистрирован" : "Не зарегистрирован"}</dd></dl></div></section></div></div>`;
 }
 async function photosDetail(o) {
-  if (!o.last_flight)
-    return empty("Снимков пока нет", "Сначала загрузите облёт.", "image");
-  const images = await request(`/flights/${o.last_flight.flight_id}/images`);
+  const images = o.last_flight
+    ? await request(`/flights/${o.last_flight.flight_id}/images`)
+    : [];
   window.__photos = images;
-  const ordered = [...meta.views].sort(
-    (a, b) =>
-      ["top_high", "top_low", "N", "E", "S", "W"].indexOf(a.id) -
-      ["top_high", "top_low", "N", "E", "S", "W"].indexOf(b.id),
-  );
-  return `<section class="panel section-block"><div class="panel-head"><h2>Галерея ракурсов</h2><span class="subtle">${images.length} снимков</span></div><div class="panel-body">${images.length === 0 ? `<div class="note neutral" style="margin-bottom:20px">${icon("image")}<div>В репозитории пока нет аэрофотоснимков. Пустые кадры обозначают ракурсы; они не являются доказательствами. Загрузите собственные снимки, чтобы просмотреть их здесь.</div></div>` : ""}<div class="gallery">${ordered
-    .map((v) => {
-      const im = images.find((i) => i.view === v.id);
-      return `<button class="photo-tile" ${im ? `data-action="view-photo" data-id="${esc(im.id)}"` : "disabled"}>${im ? `<img src="${esc(im.thumb_url || im.url)}" alt="${esc(v.label)} — снимок объекта">` : `<span class="photo-placeholder">${icon("image")}Снимок не загружен</span>`}<span class="photo-caption"><span>${esc(v.label)}</span><span class="muted">${im?.detections?.length ? `${im.detections.length} детекций` : ""}</span></span></button>`;
-    })
-    .join("")}</div></div></section>`;
+  return `<section class="panel section-block"><div class="panel-head"><h2>Галерея ракурсов</h2><span>${images.length} снимков</span></div><div class="panel-body"><div class="gallery">${images.map((im) => `<button class="photo-tile" data-action="view-photo" data-id="${esc(im.id)}"><img src="${esc(im.quality_ok == null ? im.url : im.thumb_url || im.url)}" alt="${esc(im.filename || "Снимок объекта")}"><span class="photo-caption">${esc(im.view ? label("views", im.view) : "Ракурс не указан")}</span></button>`).join("")}</div>${images.length ? "" : "<p>Фотографии пока не загружены.</p>"}</div></section>`;
 }
+
 async function materialDetail(o) {
+  if (!supports(meta, "conductor"))
+    return materialPanel(o, meta, inspectionHelpers());
   const m = o.material,
     views = o.last_flight?.material_result?.per_view || [];
   const images = views.length
@@ -431,7 +442,79 @@ async function journalDetail(o) {
   const actions = listItems(await request(`/objects/${o.id}/actions`));
   return `<section class="panel section-block"><div class="panel-head"><h2>Журнал действий</h2><span class="subtle">Кто, когда и на основании чего</span></div><div class="panel-body">${actions.length ? actions.map((a) => `<article class="journal-item"><h3>${esc(a.label || a.action_code || a.step || a.decision || "Действие")}</h3><p>${esc(a.comment || a.outcome || a.result || "")}</p><small>${esc(a.author || a.user || "Система")} · ${date(a.created_at, { hour: "2-digit", minute: "2-digit" })}</small></article>`).join("") : empty("История пока пуста", "Сохранённые исходы и решения появятся здесь.", "clock")}</div></section>`;
 }
+
+async function inspectionObjectsPage() {
+  const params = new URLSearchParams({ page: filters.page, page_size: 10 });
+  for (const key of ["q", "stage", "data_status", "overdue", "pledged"])
+    if (filters[key] !== "") params.set(key, filters[key]);
+  params.set("sort", filters.sort === "address" ? "address" : "-created_at");
+  const result = await request(`/objects?${params}`);
+  return (
+    heading(
+      "Объекты",
+      "Материалы и готовность по фотографиям.",
+      btn("Добавить объект", "go-new", "primary", "plus"),
+    ) +
+    `<section class="panel"><div class="panel-head"><h2>Объекты мониторинга: ${result.total}</h2></div><form id="filters" class="filters"><label>Поиск<input class="field" name="q" value="${esc(filters.q)}" aria-label="Поиск в реестре"></label><select name="stage" aria-label="Стадия">${options("stages", filters.stage, "Все стадии")}</select><select name="data_status" aria-label="Состояние данных"><option value="">Все данные</option>${Object.entries(
+      dataStates,
+    )
+      .map(
+        ([id, value]) =>
+          `<option value="${id}" ${filters.data_status === id ? "selected" : ""}>${value[1]}</option>`,
+      )
+      .join(
+        "",
+      )}</select><button class="btn" type="submit">Найти</button>${btn("Сбросить", "reset-filters", "ghost")}</form><div class="table-wrap"><table><thead><tr><th>Объект</th><th>Стадия</th><th>Готовность</th><th>Шкала банка</th><th>Материал</th><th>Последний облёт</th><th>Данные</th></tr></thead><tbody>${result.items.map((o) => `<tr><td>${objectLink(o.id, esc(o.address))}<p class="subtle">${esc(o.cadastral || "")}</p></td><td>${o.stage ? esc(label("stages", o.stage)) : "—"}</td><td>${o.readiness_pct ?? "—"}%</td><td>${o.bank_readiness ?? "—"}</td><td>${o.material ? esc(label("materials", o.material.observed)) : "Не закреплён"}</td><td>${date(o.last_flight_at)}</td><td>${dataBadge(o.data_status)}</td></tr>`).join("")}</tbody></table></div><div class="panel-foot">Страница ${filters.page}${filters.page > 1 ? btn("Назад", "page-prev", "small") : ""}${filters.page * 10 < result.total ? btn("Далее", "page-next", "small") : ""}</div></section>`
+  );
+}
+
+function inspectionHelpers() {
+  return { heading, btn, objectLink, esc, dataBadge, date, label };
+}
+async function inspectionObjectPage(id) {
+  const o = await request(`/objects/${encodeURIComponent(id)}`);
+  currentObject = o;
+  const tabs = [
+    ["overview", "Обзор"],
+    ["photos", "Снимки"],
+    ["material", "Материал стен"],
+  ];
+  if (supports(meta, "actions")) tabs.push(["journal", "Журнал"]);
+  if (!tabs.some(([key]) => key === objectTab)) objectTab = "overview";
+  let body;
+  if (objectTab === "photos") body = await photosDetail(o);
+  else if (objectTab === "material") body = await materialDetail(o);
+  else if (objectTab === "journal") body = await journalDetail(o);
+  else {
+    body = readinessDetail(o, inspectionHelpers());
+    if (supports(meta, "history")) {
+      const history = await request(
+        `/objects/${encodeURIComponent(id)}/history`,
+      );
+      if (history.fact.length)
+        body += `<section class="panel section-block"><div class="panel-head"><h2>План и история готовности</h2></div><div class="chart-container">${progressChart(history, esc)}</div></section>`;
+    }
+  }
+  schedulePoll(o);
+  return (
+    `<a href="#/objects" class="back-link">К списку объектов</a>` +
+    heading(
+      esc(o.address),
+      esc(o.cadastral || "Кадастровый номер не указан"),
+      btn("Загрузить облёт", "upload-object", "primary", "upload"),
+    ) +
+    `<div class="tabs detail-tabs" role="tablist" aria-label="Разделы объекта">${tabs.map(([key, title]) => `<button role="tab" aria-selected="${objectTab === key}" class="${objectTab === key ? "active" : ""}" data-action="object-tab" data-tab="${key}">${title}</button>`).join("")}</div>${body}`
+  );
+}
+function materialCorrectionDialog() {
+  showDialog(
+    "Проверка материала стен",
+    `<form id="material-review-form"><label for="manual-material">Материал стен</label><select id="manual-material" name="material" required>${options("materials", currentObject.material?.observed || "", "Выберите материал")}</select><label for="material-comment">Основание исправления</label><textarea id="material-comment" name="comment" required></textarea><button type="submit" class="btn primary">Сохранить материал</button></form>`,
+  );
+}
+
 async function objectPage(id) {
+  if (!supports(meta, "conductor")) return inspectionObjectPage(id);
   const o = await request(`/objects/${encodeURIComponent(id)}`);
   currentObject = o;
   const history = await request(`/objects/${encodeURIComponent(id)}/history`);
@@ -578,7 +661,7 @@ async function uploadPage(id) {
   return (
     `<a href="#/objects/${esc(id)}" class="back-link">${icon("back")}К объекту</a>` +
     heading("Загрузить облёт", esc(o.address)) +
-    `<section class="panel form-width"><div class="panel-head"><h2>Снимки объекта</h2></div><div class="panel-body"><div class="note neutral">${icon("drone")}<div><strong>Рекомендуются шесть ракурсов</strong>Север, восток, юг, запад, дом сверху и участок сверху. Формат JPG / PNG, до 30 МБ на снимок. Можно загрузить от 1 до 20 файлов.</div></div>${meta.mock ? '<p class="subtle" style="margin-top:14px">В демо заранее подготовленный результат появится через 3 секунды. Фото можно просмотреть, но AI их здесь не анализирует. Укажите ракурсы вручную.</p>' : ""}<form id="upload-form" style="margin-top:20px"><label class="dropzone" id="flight-drop">${icon("upload")}<strong>Перетащите фотографии сюда</strong><p>Или нажмите, чтобы выбрать файлы</p><input id="flight-files" type="file" multiple accept="image/jpeg,image/png" aria-label="Фотографии облёта"></label><div id="upload-files"></div><div class="form-group" style="margin-top:20px"><label for="flown-at">Дата и время облёта</label><input class="field" id="flown-at" name="flown_at" type="datetime-local"><span class="subtle">Время Барнаула (UTC+7). Без значения — дата из EXIF на сервере.</span></div><div class="form-actions"><a href="#/objects/${esc(id)}" class="btn">Отмена</a><button type="submit" id="upload-submit" class="btn primary" disabled>${icon("upload")}Отправить на обработку</button></div></form><div id="upload-status"></div></div></section>`
+    `<section class="panel form-width"><div class="panel-head"><h2>Снимки объекта</h2></div><div class="panel-body"><div class="note neutral">${icon("drone")}<div><strong>Рекомендуются шесть ракурсов</strong>Север, восток, юг, запад, дом сверху и участок сверху. Формат JPG / PNG, до 30 МБ на снимок. Можно загрузить от 1 до 20 файлов.</div></div>${settings().mode === "demo" ? '<p class="subtle" style="margin-top:14px">В демо заранее подготовленный результат появится через 3 секунды. Фото можно просмотреть, но AI их здесь не анализирует. Укажите ракурсы вручную.</p>' : ""}<form id="upload-form" style="margin-top:20px"><label class="dropzone" id="flight-drop">${icon("upload")}<strong>Перетащите фотографии сюда</strong><p>Или нажмите, чтобы выбрать файлы</p><input id="flight-files" type="file" multiple accept="image/jpeg,image/png" aria-label="Фотографии облёта"></label><div id="upload-files"></div><div class="form-group" style="margin-top:20px"><label for="flown-at">Дата и время облёта</label><input class="field" id="flown-at" name="flown_at" type="datetime-local"><span class="subtle">Время Барнаула (UTC+7). Без значения — дата из EXIF на сервере.</span></div><label class="check-label" style="margin-top:16px"><input type="checkbox" name="target_confirmed">Я проверил, что на фотографиях нужное здание</label><div class="form-actions"><a href="#/objects/${esc(id)}" class="btn">Отмена</a><button type="submit" id="upload-submit" class="btn primary" disabled>${icon("upload")}Отправить на обработку</button></div></form><div id="upload-status"></div></div></section>`
   );
 }
 function renderUploadFiles() {
@@ -697,7 +780,7 @@ function showPhoto(id) {
     .join("");
   showDialog(
     esc(label("views", im.view)),
-    `<div class="row between" style="margin-bottom:20px"><label class="check-label"><input type="checkbox" id="show-boxes" checked>Показать рамки</label><span class="subtle">${im.detections?.length || 0} детекций</span></div><div style="text-align:center"><div class="photo-stage"><img src="${esc(im.url)}" alt="${esc(label("views", im.view))}: оригинал"><div id="photo-boxes">${detections}</div></div></div><p class="subtle" style="margin-top:14px">${im.view_source === "manual" ? "Ракурс задан вручную" : "Ракурс из EXIF"}${im.sha256 ? ` · SHA256: ${esc(im.sha256)}` : ""}</p>`,
+    `<div class="row between" style="margin-bottom:20px"><label class="check-label"><input type="checkbox" id="show-boxes" checked>Показать рамки</label><span class="subtle">${im.detections?.length || 0} детекций</span></div><div style="text-align:center"><div class="photo-stage"><img src="${esc(im.url)}" alt="${esc(label("views", im.view))}: оригинал"><div id="photo-boxes">${detections}</div></div></div><p class="subtle" style="margin-top:14px">${im.view_source === "manual" ? "Ракурс задан вручную" : im.view_source === "exif" ? "Ракурс из EXIF" : "Ракурс не указан"}${im.sha256 ? ` · SHA256: ${esc(im.sha256)}` : ""}</p>`,
     { wide: true },
   );
 }
@@ -706,7 +789,7 @@ async function performReview(action) {
   if (!f) return;
   await request(`/flights/${f.flight_id}/review`, {
     method: "POST",
-    body: { action, comment: null },
+    body: { action, comment: "" },
   });
   await refresh();
   await render();
@@ -714,11 +797,13 @@ async function performReview(action) {
 }
 function correctionDialog() {
   const f = currentObject.last_flight;
+  const value = f.readiness_review || f.review || f.result || {};
   showDialog(
     "Исправить результат облёта",
-    `<p>Правка сохранится отдельно. Исходный результат модели останется доступным.</p><form id="review-form"><div class="form-grid"><div class="form-group"><label for="correct-stage">Стадия</label><select id="correct-stage" name="stage" required>${meta.stages.map((s) => `<option value="${esc(s.id)}" ${(f.review?.stage || f.result.stage) === s.id ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select></div><div class="form-group"><label for="correct-pct">Готовность, %</label><input class="field" id="correct-pct" name="readiness_pct" type="number" min="0" max="100" required value="${f.review?.readiness_pct ?? f.result.readiness_pct}"></div><div class="form-group full"><label for="correct-comment">Причина исправления</label><textarea id="correct-comment" name="comment" required></textarea></div></div><div class="form-actions">${btn("Отмена", "close-dialog")}<button class="btn primary" type="submit">Сохранить правку</button></div></form>`,
+    `<p>Исходный ответ модели сохранится.</p><form id="review-form"><div class="form-grid"><div class="form-group"><label for="correct-stage">Стадия</label><select id="correct-stage" name="stage" required>${options("stages", value.stage, "Выберите стадию")}</select></div><div class="form-group"><label for="correct-pct">Готовность, %</label><input class="field" id="correct-pct" name="readiness_pct" type="number" min="0" max="100" required value="${value.readiness_pct ?? ""}"></div><div class="form-group"><label for="correct-bank">Шкала банка</label><select id="correct-bank" name="bank_readiness" required>${options("bank_readiness", value.bank_readiness, "Выберите оценку")}</select></div><div class="form-group full"><label for="correct-comment">Причина исправления</label><textarea id="correct-comment" name="comment" required></textarea></div></div><button type="submit" class="btn primary">Сохранить правку</button></form>`,
   );
 }
+
 function reasonDialog(title, action, attributes = "") {
   showDialog(
     title,
@@ -757,7 +842,12 @@ async function render(preserveDraft = false) {
         html = route[1] ? await objectPage(route[1]) : await objectsPage();
         break;
       case "tasks":
-        html = tasksPage();
+        html = supports(meta, "tasks")
+          ? tasksPage()
+          : empty(
+              "Задачи пока недоступны",
+              "Проверки фотографий доступны в карточке объекта.",
+            );
         break;
       case "flights":
         html = flightsPage();
@@ -766,13 +856,20 @@ async function render(preserveDraft = false) {
         html = newObjectPage();
         break;
       case "import":
-        html = importPage();
+        html = supports(meta, "registry_import")
+          ? importPage()
+          : empty("Импорт пока недоступен", "Добавьте объект через форму.");
         break;
       case "upload":
         html = await uploadPage(route[1]);
         break;
       case "act":
-        html = await actPage(route[1]);
+        html = supports(meta, "act")
+          ? await actPage(route[1])
+          : empty(
+              "Акт пока недоступен",
+              "Результаты доступны в карточке объекта.",
+            );
         break;
       case "overview":
       case "":
@@ -810,9 +907,7 @@ async function boot() {
   root.innerHTML =
     '<div class="boot"><span class="spinner"></span>Подключаем мониторинг…</div>';
   try {
-    meta = await request("/meta");
-    if (!Array.isArray(meta.risk_levels) || !Array.isArray(meta.steps))
-      throw new Error("Справочники API неполные: проверьте /meta.");
+    meta = normalizeMeta(await request("/meta"));
     await refresh();
     await render();
   } catch (e) {
@@ -991,6 +1086,21 @@ document.addEventListener("click", async (e) => {
         toast("Дирижёр сейчас не ожидает ручную проверку. Обновите карточку.");
       return;
     }
+    if (action === "material-accept") {
+      el.disabled = true;
+      await request(
+        `/flights/${currentObject.last_flight.flight_id}/material/review`,
+        { method: "POST", body: { action: "accept" } },
+      );
+      await refresh();
+      await render();
+      toast("Материал принят.");
+      return;
+    }
+    if (action === "material-correct") {
+      materialCorrectionDialog();
+      return;
+    }
     if (action === "review-accept") {
       el.disabled = true;
       await performReview("accept");
@@ -1082,12 +1192,7 @@ document.addEventListener("submit", async (e) => {
         );
       saveSettings(next);
       try {
-        const newMeta = await request("/meta");
-        if (
-          !Array.isArray(newMeta.steps) ||
-          !Array.isArray(newMeta.risk_levels)
-        )
-          throw new Error("Справочники API неполные.");
+        const newMeta = normalizeMeta(await request("/meta"));
         meta = newMeta;
         await refresh();
       } catch (e) {
@@ -1158,6 +1263,23 @@ document.addEventListener("submit", async (e) => {
       await render();
       toast("Решение сохранено.");
     }
+    if (form.id === "material-review-form") {
+      await request(
+        `/flights/${currentObject.last_flight.flight_id}/material/review`,
+        {
+          method: "POST",
+          body: {
+            action: "correct",
+            material: fd.get("material"),
+            comment: String(fd.get("comment") || "").trim(),
+          },
+        },
+      );
+      dialog.close();
+      await refresh();
+      await render();
+      toast("Материал сохранён.");
+    }
     if (form.id === "review-form") {
       await request(`/flights/${currentObject.last_flight.flight_id}/review`, {
         method: "POST",
@@ -1165,6 +1287,7 @@ document.addEventListener("submit", async (e) => {
           action: "correct",
           stage: fd.get("stage"),
           readiness_pct: Number(fd.get("readiness_pct")),
+          bank_readiness: Number(fd.get("bank_readiness")),
           comment: String(fd.get("comment")).trim(),
         },
       });
@@ -1242,9 +1365,10 @@ document.addEventListener("submit", async (e) => {
     }
     if (form.id === "upload-form") {
       if (!uploadFiles.length) throw new Error("Добавьте снимки.");
-      if (meta.mock && uploadFiles.some((f) => !f.view))
+      if (settings().mode === "demo" && uploadFiles.some((f) => !f.view))
         throw new Error("Укажите ракурс для каждого файла.");
       const body = new FormData();
+      body.append("target_confirmed", String(fd.has("target_confirmed")));
       for (const f of uploadFiles) body.append("files", f.file);
       body.append(
         "views",
