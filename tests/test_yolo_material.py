@@ -87,6 +87,31 @@ def test_walls_outside_target_are_not_sent_to_classifier(tmp_path, monkeypatch):
     assert calls == [] and result[0].visibility == "no_walls"
 
 
+def test_tiny_wall_is_not_sent_to_classifier(tmp_path, monkeypatch):
+    predictor, calls = classifier(tmp_path, monkeypatch, conf=0.99)
+    image = Image.new("RGB", (200, 200))
+    # With the 10% margin: 0.12 * 200 = 24 px < 32 px, the training cut-off.
+    tiny = wall(box=(0.1, 0.1, 0.2, 0.2))
+    value = predictor.predict_walls(image, "img", [tiny])[0]
+    assert calls == []
+    assert value.material == value.visibility == "unclear"
+    assert value.predicted_material is None and value.material_conf is None
+    assert value.detector_confidence == tiny.conf and value.crop_bbox is not None
+    result = aggregate(
+        [ViewObservation(**value.model_dump())],
+        [{"id": "img", "view": "N", "is_overhead": False, "sha256": "a"}],
+        model=predictor.version,
+        is_demo=False,
+        project_material=None,
+        target_confirmed=True,
+    )
+    assert result.votes == {} and result.needs_reshoot
+    assert result.review_reasons == ["NO_RELIABLE_WALL_VIEWS"]
+    # A wall of normal size on the same frame is still classified.
+    assert predictor.predict_walls(image, "img", [tiny, wall()])[1].material == "brick"
+    assert len(calls) == 1
+
+
 def test_low_wall_confidence_cannot_become_strong_material(tmp_path, monkeypatch):
     predictor, _ = classifier(tmp_path, monkeypatch, conf=0.99)
     value = predictor.predict_walls(Image.new("RGB", (200, 200)), "img", [wall(conf=0.3)])[0]

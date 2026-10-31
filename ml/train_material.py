@@ -37,8 +37,11 @@ from train import RUNS_DIR, WEIGHTS_DIR, resolve_model
 from ultralytics import YOLO
 
 OUT_DIR = REPO / "data" / "material"
-CROP_MARGIN = 0.10  # поле вокруг стены, раздел 5.1
-MIN_CROP_PX = 32  # мельче — текстуру стены не разобрать
+# Общие с сервисом (agents/material/yolo.py): поле вокруг стены, раздел 5.1, и минимальный
+# размер вырезки по короткой стороне — мельче текстуру стены не разобрать.
+_CROP_RULES = yaml.safe_load(MATERIALS_YAML.read_text(encoding="utf-8"))
+CROP_MARGIN = float(_CROP_RULES["crop_margin"])
+MIN_CROP_PX = int(_CROP_RULES["min_crop_px"])
 VAL_SHARE = 0.20
 
 

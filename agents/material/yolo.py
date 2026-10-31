@@ -47,6 +47,20 @@ class YoloMaterialPredictor:
         for wall in walls:
             crop_box = padded_bbox(wall.bbox)
             x1, y1, x2, y2 = crop_box
+            if min((x2 - x1) * width, (y2 - y1) * height) < self.rules.min_crop_px:
+                # The classifier never saw such crops in training; keep the wall as unclear.
+                observations.append(
+                    Observation(
+                        image_id=image_id,
+                        cls=wall.cls,
+                        bbox=wall.bbox,
+                        crop_bbox=crop_box,
+                        detector_confidence=wall.conf,
+                        material="unclear",
+                        visibility="unclear",
+                    )
+                )
+                continue
             with image.crop((x1 * width, y1 * height, x2 * width, y2 * height)) as crop:
                 probs = self.model.predict(source=crop, imgsz=384, verbose=False)[0].probs
             if probs is None:
