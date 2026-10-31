@@ -1,9 +1,10 @@
 from collections import defaultdict
 from math import prod
 
+from agents.geo import nadir_spread_m
 from agents.readiness.config import classes_config, stages_config
 from agents.readiness.parcel import outside_parcel
-from schemas.material import FACADES
+from schemas.material import FACADES, TOP_VIEWS
 from schemas.readiness import (
     STAGE_CLASSES,
     Detection,
@@ -131,6 +132,8 @@ def aggregate(
             or not counts_for(detection.cls, group)
         ):
             continue
+        if detection.conf < rules.evidence_min_conf:
+            continue
         if detection.conf > best[detection.cls].get(key, (0.0, ""))[0]:
             best[detection.cls][key] = (detection.conf, detection.image_id)
         if detection.conf >= threshold and detection.cls == C.WINDOW_INSTALLED:
@@ -234,10 +237,20 @@ def aggregate(
         reasons.append("NO_TOP_HIGH")
     if len(sides) < rules.min_facades:
         reasons.append("FEW_FACADES")
-    located = [image["gps"] for image in images if image.get("gps")]
+    # Over a nadir the drone hangs above the house (0-5 m apart on dataset/); side shots are
+    # taken 12-38 m away, so only nadirs say whether the flight was over the parcel.
+    located = [
+        image["gps"]
+        for image in images
+        if image.get("gps") and (image.get("is_overhead") or image.get("view") in TOP_VIEWS)
+    ]
     # Without a parcel boundary or GPS there is nothing to compare; target_confirmed covers it.
     if parcel and located and outside_parcel(parcel, located, rules.parcel_buffer_m):
         reasons.append("OUT_OF_PARCEL")
+    spread = nadir_spread_m(images)
+    if rules.max_nadir_spread_m is not None and spread is not None:
+        if spread > rules.max_nadir_spread_m:
+            reasons.append("MIXED_LOCATIONS")
     if result.confidence < rules.low_confidence:
         reasons.append("LOW_CONFIDENCE")
     on_top = best[C.ROOF_COVERED].get("top_low", (0.0, ""))[0] >= threshold
@@ -253,6 +266,10 @@ def aggregate(
     result.needs_reshoot = bool(reasons)
     if not target_confirmed:
         result.review_reasons.append("TARGET_NOT_CONFIRMED")
+    off_centre = sum(image.get("target_region_source") == "centre_zone" for image in images)
+    if off_centre:
+        # Houses were seen but none in the centre: the target was not guessed on those frames.
+        result.review_reasons.append("TARGET_OFF_CENTRE")
     if result.needs_reshoot:
         result.status = "needs_reshoot"
     elif result.review_reasons:
@@ -260,6 +277,11 @@ def aggregate(
     else:
         result.status = "determined"
     result.explanation = explain(result, stage, has, support, facade_share, len(facade_keys))
+    if off_centre:
+        result.explanation += (
+            f" На {plural(off_centre, ('снимке', 'снимках', 'снимках'))} нужный дом не в центре"
+            " кадра: соседние дома не учитывались, проверьте результат."
+        )
     return result
 
 

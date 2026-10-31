@@ -1,6 +1,7 @@
 import logging
 
 from agents.analysis.service import AnalysisService
+from agents.geo import flight_point
 from agents.material.aggregation import aggregate
 from agents.material.model import (
     DemoPredictor,
@@ -11,7 +12,7 @@ from agents.material.model import (
 from agents.readiness import aggregation as readiness
 from agents.readiness.model import DemoDetector, Detector, load_detector
 from agents.readiness.quality import quality_issues
-from agents.targeting import exclusion_reason
+from agents.targeting import exclusion_reason, locate_target
 from api.config import Settings
 from api.database import Database
 from api.images import load_oriented_image, save_crop, save_preview
@@ -86,6 +87,8 @@ class Worker:
             directory = self.settings.storage_dir / "flights" / flight_id
             observations: list[ViewObservation] = []
             detections: list[Detection] = []
+            # The ground point the whole flight is aimed at; frames are matched against it.
+            point = flight_point(images)
             for info in images:
                 with load_oriented_image(directory / info["storage_name"]) as image:
                     save_preview(image, directory / f"{info['id']}.thumb.jpg")
@@ -99,10 +102,23 @@ class Worker:
                                 detection = Detection.model_validate(found)
                                 if detection.image_id != info["id"]:
                                     raise ValueError("Детектор вернул другой image_id")
+                                image_detections.append(detection)
+                            if info.get("target_region_source") != "provided":
+                                # Without a manual region: the house under the flight point,
+                                # otherwise the house in the centre of the frame.
+                                region, source, projected = locate_target(
+                                    image_detections, info, point
+                                )
+                                info.update(
+                                    target_bbox=region,
+                                    target_region_source=source,
+                                    target_point=projected,
+                                )
+                                self.database.update_image(info, token)
+                            for detection in image_detections:
                                 reason = exclusion_reason(detection.bbox, info)
                                 detection.target_included = reason is None
                                 detection.target_exclusion_reason = reason
-                                image_detections.append(detection)
                             detections.extend(image_detections)
                         except Exception:
                             self._inference_error("readiness", errors)

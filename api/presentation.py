@@ -11,6 +11,7 @@ MATERIAL_STATUSES = {
 }
 MATERIAL_REVIEW_REASONS = {
     "TARGET_NOT_CONFIRMED": "Не подтверждено нужное здание",
+    "TARGET_OFF_CENTRE": "На части снимков нужный дом не в центре кадра",
     "FEW_CONFIRMED_FACADES": "Недостаточно разных подтверждённых фасадов",
     "LOW_CONFIDENCE": "Недостаточная уверенность",
     "CONFLICTING_MATERIALS": "Ракурсы указывают на разные материалы",

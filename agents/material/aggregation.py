@@ -129,6 +129,8 @@ def aggregate(
         result.review_reasons.append("LOW_CONFIDENCE")
     if not target_confirmed:
         result.review_reasons.append("TARGET_NOT_CONFIRMED")
+    if any(image.get("target_region_source") == "centre_zone" for image in images):
+        result.review_reasons.append("TARGET_OFF_CENTRE")
     for observation in observations:
         if observation.included and observation.material == winner:
             for reason in observation.review_reasons:

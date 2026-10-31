@@ -17,7 +17,7 @@ from starlette.exceptions import HTTPException
 from agents.analysis.service import AnalysisService
 from agents.material.config import material_config
 from agents.readiness.config import classes_config, stages_config
-from agents.readiness.views import assign_facade_sides, overhead_view
+from agents.readiness.views import assign_facade_sides, overhead_view, promote_low_overhead
 from api.config import Settings
 from api.database import Database
 from api.errors import ServiceError
@@ -380,10 +380,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         "quality_ok": None,
                     }
                 )
+            promote_low_overhead(images)
             suggested = [dict(image) for image in images]
             assign_facade_sides(suggested)
             for image, suggestion in zip(images, suggested):
                 image["suggested_view"] = suggestion["view"] if image["view"] is None else None
+                if image["suggested_view"] is not None:
+                    # A manual view always wins; otherwise the camera azimuth gives the side.
+                    image.update(view=image["suggested_view"], view_source="exif")
             dates = [image["taken_at"] for image in images if image["taken_at"]]
             database.enqueue(
                 {
