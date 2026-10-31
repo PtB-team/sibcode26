@@ -7,6 +7,7 @@ import {
   percent,
 } from "../js/capabilities.js";
 import { materialPanel, readinessDetail } from "../js/inspection.js";
+import { analysisPanel } from "../js/analysis.js";
 
 test("Inspection connects without bank dictionaries", () => {
   const meta = normalizeMeta({
@@ -99,4 +100,23 @@ test("Manual readiness takes precedence over unavailable model", () => {
   );
   assert.match(html, /45%/);
   assert.match(html, /Проверено сотрудником/);
+});
+
+test("AI text is escaped and pending requests cannot be submitted again", () => {
+  const report = {
+    llm_status: "pending",
+    explanation: '<img src=x onerror="alert(1)">',
+    connection: { mock: true },
+    evidence_refs: [],
+    facts: {},
+  };
+  const html = analysisPanel(report, {
+    esc: (value) => String(value).replaceAll("<", "&lt;"),
+    btn: (text, action, cls, icon, attrs) =>
+      `<button ${attrs}>${text}</button>`,
+  });
+  assert.doesNotMatch(html, /<img/);
+  assert.match(html, /&lt;img/);
+  assert.match(html, /disabled/);
+  assert.match(html, /Действия не выполняются автоматически/);
 });

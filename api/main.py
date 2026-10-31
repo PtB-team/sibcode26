@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 
+from agents.analysis.service import AnalysisService
 from agents.readiness.config import classes_config, stages_config
 from agents.readiness.views import assign_facade_sides, overhead_view
 from api.config import Settings
@@ -21,6 +22,7 @@ from api.database import Database
 from api.errors import ServiceError
 from api.images import inspect_image
 from api.presentation import MATERIAL_REVIEW_REASONS, MATERIAL_STATUSES
+from schemas.analysis import AnalysisRequest
 from schemas.material import (
     MATERIALS,
     TOP_VIEWS,
@@ -50,6 +52,7 @@ def parse_list(raw: str | None, count: int, name: str) -> list:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     database = Database(settings.database_path)
+    analysis = AnalysisService(settings, database)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -58,7 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Мониторинг ИЖС: материалы и готовность",
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
         description=(
             "Загрузка снимков, материалы стен и готовность строительства. "
@@ -137,6 +140,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "readiness_review": True,
                 "risk": False,
                 "conductor": False,
+                "gigachat_analysis": True,
                 "alerts": False,
                 "tasks": False,
                 "history": True,
@@ -184,6 +188,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post(prefix + "/objects", status_code=201, tags=["Объекты"])
     def create_object(body: ObjectCreate):
         return database.create_object(body.model_dump(mode="json"))
+
+    @app.get(prefix + "/gigachat/status", tags=["GigaChat"])
+    def gigachat_status():
+        return settings.gigachat.public_status(settings.mock)
+
+    @app.get(prefix + "/objects/{object_id}/analysis", tags=["GigaChat"])
+    def get_analysis(object_id: str):
+        return analysis.latest(object_id)
+
+    @app.post(prefix + "/objects/{object_id}/analysis", status_code=202, tags=["GigaChat"])
+    def request_analysis(object_id: str, body: AnalysisRequest | None = None):
+        record = analysis.enqueue(object_id, force=body.force if body else False)
+        return analysis.public(record, object_id)
+
+    @app.get(prefix + "/analyses/{analysis_id}", tags=["GigaChat"])
+    def get_analysis_job(analysis_id: str):
+        record = analysis.repository.get(analysis_id)
+        return analysis.public(record, record["object_id"])
 
     @app.get(prefix + "/objects", tags=["Объекты"])
     def list_objects(
@@ -425,7 +447,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     409, "MATERIAL_NOT_DETERMINED", "Нет результата модели, который можно принять"
                 )
             material = result["material"]
-        return database.add_review(
+        value = database.add_review(
             flight_id,
             jsonable_encoder(
                 {
@@ -437,6 +459,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 }
             ),
         )
+        analysis.automatic(flight["object_id"])
+        return value
 
     @app.post(prefix + "/flights/{flight_id}/review", status_code=201, tags=["Проверка"])
     def review_readiness(
@@ -455,7 +479,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     409, "STAGE_NOT_DETERMINED", "Нет результата модели, который можно принять"
                 )
             values = {key: result[key] for key in ("stage", "readiness_pct", "bank_readiness")}
-        return database.add_readiness_review(
+        value = database.add_readiness_review(
             flight_id,
             {
                 "action": body.action,
@@ -466,6 +490,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "source": "employee",
             },
         )
+        analysis.automatic(flight["object_id"])
+        return value
 
     return app
 

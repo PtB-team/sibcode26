@@ -58,6 +58,7 @@ try {
   const env = {
     STORAGE_DIR: path.join(folder, "db"),
     MOCK: "1",
+    GIGACHAT_ENABLED: "0",
     PYTHONIOENCODING: "utf-8",
   };
   start(
@@ -214,6 +215,38 @@ try {
     await page.request.get(`${base}/api/v1/objects/${objectId}/actions`)
   ).json();
   assert.equal(actions.length, 2);
+  await page.getByRole("tab", { name: "Обзор", exact: true }).click();
+  await page
+    .getByRole("heading", { name: "AI-сводка инспекции", exact: true })
+    .waitFor();
+  const requested = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/objects/${objectId}/analysis`),
+  );
+  await page
+    .getByRole("button", { name: "Обновить AI-сводку", exact: true })
+    .click();
+  const summaryResponse = await requested;
+  assert.equal(summaryResponse.status(), 202);
+  const queuedSummary = await summaryResponse.json();
+  let summary;
+  for (let i = 0; i < 50; i++) {
+    summary = await (
+      await page.request.get(
+        `${base}/api/v1/analyses/${queuedSummary.analysis_id}`,
+      )
+    ).json();
+    if (summary.llm_status !== "pending") break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal(summary.llm_status, "unavailable");
+  assert.equal(summary.decision_source, "rules_fallback");
+  assert.equal(summary.error.code, "MOCK_MODE");
+  assert.equal(summary.proposal_only, true);
+  await page
+    .getByRole("button", { name: "Обновить AI-сводку", exact: true })
+    .waitFor();
   assert.deepEqual(forbidden, []);
   assert.deepEqual(failures, []);
   await page.screenshot({
@@ -228,6 +261,7 @@ try {
       targetConfirmed: true,
       readiness: 45,
       material: "brick",
+      aiSummary: summary.llm_status,
       unsupportedRequests: forbidden.length,
       errors: failures,
       screenshot: path.join(folder, "connected.png"),
