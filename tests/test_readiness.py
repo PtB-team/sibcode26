@@ -405,7 +405,14 @@ def test_out_of_parcel_and_bad_image_send_flight_to_reshoot():
         ).reshoot_reasons
         == []
     )
+    # A side shot is taken 12-38 m from the house: its GPS says nothing about the parcel.
     images[0] = {**images[0], "gps": [55.05, 82.871], "quality_issues": ["BLURRY"]}
+    result = aggregate(
+        detections, images, model="t", is_demo=False, target_confirmed=True, parcel=parcel
+    )
+    assert result.reshoot_reasons == ["BAD_IMAGE"]
+    # Over a nadir the drone hangs above the house: a far nadir means the wrong place.
+    images[4] = {**images[4], "gps": [55.05, 82.871]}
     result = aggregate(
         detections, images, model="t", is_demo=False, target_confirmed=True, parcel=parcel
     )

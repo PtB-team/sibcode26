@@ -25,11 +25,30 @@ class ClassConfig(Contract):
     views: list[ViewGroup] = Field(min_length=1)
 
 
+class AutoTargetConfig(Contract):
+    anchor_classes: list[DetectorClass] = Field(min_length=1)
+    min_conf: Score
+    centre_zone: float = Field(gt=0, le=0.5)
+    merge_overlap: float = Field(gt=0, le=1)
+    stack_overlap: float = Field(gt=0, le=1)
+    stack_gap: float = Field(ge=0, le=1)
+    margin: float = Field(ge=0, le=0.5)
+
+
+class FlightPointConfig(Contract):
+    min_tilt_deg: float = Field(gt=0, le=90)
+    min_altitude_m: float = Field(ge=0)
+    max_point_distance: float = Field(ge=0, le=1)
+
+
 class ClassesConfig(Contract):
     version: str
     views: list[Label]
     top_high_min_relative_altitude_m: float | None = None
+    top_low_relative_ratio: float | None = Field(default=None, gt=1)
     facade_side_tolerance_deg: float | None = Field(default=None, gt=0, lt=45)
+    flight_point: FlightPointConfig | None = None
+    auto_target: AutoTargetConfig | None = None
     classes: list[ClassConfig]
 
     @model_validator(mode="before")
@@ -87,10 +106,12 @@ class QualityConfig(Contract):
 class StagesConfig(Contract):
     version: str
     present_threshold: Score
+    evidence_min_conf: Score = 0.0
     low_confidence: Score
     min_facades: int = Field(ge=1, le=4)
     done_windows_ratio: Score
     parcel_buffer_m: float = Field(ge=0)
+    max_nadir_spread_m: float | None = Field(default=None, gt=0)
     quality: QualityConfig
     weights: Weights
     stages: list[Label]

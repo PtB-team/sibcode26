@@ -13,6 +13,31 @@ def overhead_view(relative_altitude: float | None) -> str | None:
     return "top_high" if relative_altitude >= threshold else "top_low"
 
 
+def promote_low_overhead(images: list[dict]) -> None:
+    """Make the lowest automatic nadir top_low when the fixed threshold found none.
+
+    Relative altitude counts from the take-off point, so a low nadir over a house on a slope or
+    a tall house can be above the fixed threshold. Nadirs at clearly different heights in one
+    flight still tell which one is the close-up of the roof.
+    """
+    ratio = classes_config().top_low_relative_ratio
+    if ratio is None or any(image.get("view") == "top_low" for image in images):
+        return
+    auto = [
+        image
+        for image in images
+        if image.get("view_source") == "exif"
+        and image.get("view") == "top_high"
+        and (image.get("relative_altitude") or 0) > 0
+    ]
+    if len(auto) < 2:
+        return
+    low = min(auto, key=lambda image: image["relative_altitude"])
+    high = max(auto, key=lambda image: image["relative_altitude"])
+    if high["relative_altitude"] / low["relative_altitude"] >= ratio:
+        low["view"] = "top_low"
+
+
 def assign_facade_sides(images: list[dict]) -> None:
     """Set N/E/S/W for side shots without a manual view, from the camera azimuth.
 
