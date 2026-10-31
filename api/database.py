@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+from agents.valuation.calculator import valuation_for_object
 from api.errors import ServiceError
 from api.presentation import (
     fixed_material_response,
@@ -79,11 +80,20 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS analyses_queue ON analyses(status, created_at);
                 CREATE INDEX IF NOT EXISTS analyses_object ON analyses(object_id, created_at DESC);
+                CREATE TABLE IF NOT EXISTS valuation_runs (
+                    id TEXT PRIMARY KEY, object_id TEXT NOT NULL REFERENCES objects(id),
+                    inputs TEXT NOT NULL, result TEXT NOT NULL, fingerprint TEXT,
+                    author TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS valuation_runs_object ON valuation_runs(object_id, created_at DESC);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(flights)")}
             for column in ("readiness", "detections", "module_errors"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE flights ADD COLUMN {column} TEXT")
+            object_columns = {row["name"] for row in db.execute("PRAGMA table_info(objects)")}
+            if "valuation_inputs" not in object_columns:
+                db.execute("ALTER TABLE objects ADD COLUMN valuation_inputs TEXT")
 
     def create_object(self, payload: dict) -> dict:
         object_id, created_at = "obj_" + uuid4().hex, utc_now()
@@ -111,7 +121,7 @@ class Database:
         result = last_flight["material_result"] if last_flight else None
         readiness = last_flight["result"] if last_flight else None
         effective = (last_flight or {}).get("readiness_review") or readiness or {}
-        return {
+        value = {
             **payload,
             "id": row["id"],
             "created_at": row["created_at"],
@@ -127,7 +137,12 @@ class Database:
             "stage": effective.get("stage"),
             "readiness_pct": effective.get("readiness_pct"),
             "bank_readiness": effective.get("bank_readiness"),
+            "valuation_inputs": json.loads(row["valuation_inputs"])
+            if row["valuation_inputs"]
+            else {},
         }
+        value["valuation"] = valuation_for_object(value, value["valuation_inputs"])
+        return value
 
     def objects(
         self,

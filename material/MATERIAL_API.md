@@ -1,6 +1,8 @@
-# API материала стен в общей сборке · 0.3
+# API материала стен в общей сборке · 0.5
 
 Этот документ описывает материальную часть общей сборки. Запуск всех компонентов и изменения 0.3 — в [INTEGRATION.md](INTEGRATION.md). [API.md](API.md) содержит также план всей банковской системы. Базовый путь — `/api/v1`, схемы запросов — в `/docs` и `/openapi.json`.
+
+Связка детектора и классификатора, дополнительные поля стены (`cls`, `bbox`, `material_conf`), параметр области `meta[].target_bbox` и ограничения автоматического выбора участка описаны в [YOLO_INTEGRATION.md](YOLO_INTEGRATION.md). У новых наблюдений `conf` относится к детектору, а `material_conf` и `confidence` — к материалу. Совместимое `class` сохраняет прежнее значение материала.
 
 ## Подключение
 
@@ -10,16 +12,19 @@
 {
   "wall_material": true,
   "material_review": true,
+  "target_region_filter": true,
+  "automatic_target_identification": false,
   "readiness": true,
   "readiness_review": true,
   "risk": false,
   "conductor": false,
+  "gigachat_analysis": true,
   "alerts": false,
   "tasks": false,
   "history": true,
   "actions": true,
   "land": false,
-  "valuation": false,
+  "valuation": true,
   "act": false,
   "registry_import": false
 }

@@ -1,6 +1,7 @@
 import re
 import warnings
 from datetime import datetime, timedelta, timezone
+from math import isfinite
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -12,7 +13,8 @@ from api.errors import ServiceError
 def _number(header: str, name: str) -> float | None:
     match = re.search(rf'{name}\s*=\s*["\x27]([^"\x27]+)', header)
     try:
-        return float(match.group(1)) if match else None
+        value = float(match.group(1)) if match else None
+        return value if value is not None and isfinite(value) else None
     except ValueError:
         return None
 
@@ -101,7 +103,13 @@ def inspect_image(path: Path, settings: Settings) -> dict:
         "has_exif": bool(exif),
         "camera_pitch": pitch,
         "camera_yaw": _number(header, "GimbalYawDegree"),
+        "camera_roll": _number(header, "GimbalRollDegree"),
         "relative_altitude": _number(header, "RelativeAltitude"),
+        "absolute_altitude": _number(header, "AbsoluteAltitude"),
+        "calibrated_focal_length_px": _number(header, "CalibratedFocalLength"),
+        "optical_center_x_px": _number(header, "CalibratedOpticalCenterX"),
+        "optical_center_y_px": _number(header, "CalibratedOpticalCenterY"),
+        "rtk_flag": _number(header, "RtkFlag"),
         "is_overhead": pitch is not None and pitch <= -75,
         "view": None,
         "view_source": None,

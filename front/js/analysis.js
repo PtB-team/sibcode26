@@ -9,6 +9,13 @@ const FACT_LABELS = {
   "plan.lag_suspected": "Признак отставания",
   "term.expired": "Плановый срок истёк",
   "readiness.bank_readiness": "Шкала банка",
+  "budget.status": "Доступность расчёта стоимости",
+  "budget.completion_scope": "Комплект работ в расчёте",
+  "budget.method": "Метод расчёта",
+  "budget.is_demo": "Демонстрационные тарифы",
+  "budget.full_cost_rub": "Готовый контур, ₽",
+  "budget.completed_cost_rub": "Условная выполненная часть, ₽",
+  "budget.remaining_cost_rub": "Остаток на достройку, ₽",
 };
 
 export function analysisPanel(report, { esc, btn }) {

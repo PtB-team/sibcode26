@@ -4,8 +4,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from schemas.analysis import Recommendation
 
-RULES_VERSION = "inspection-analysis@v1"
-PROMPT_VERSION = "inspection-summary@v1"
+RULES_VERSION = "inspection-analysis@v2"
+PROMPT_VERSION = "inspection-summary@v2"
 STAGES = ("none", "foundation", "walls", "roof", "openings", "facade", "done")
 STEP_LABELS = {
     "FLIGHT_TASK": "Запланировать контрольный облёт",
@@ -22,6 +22,9 @@ SYSTEM_PROMPT = (
     "Не меняй проценты и даты, не выдумывай завершённые работы, причины задержки, "
     "задолженность или исходы общения. Недостаток данных не означает нарушение клиентом. "
     "Не предлагай судебные, кредитные или залоговые решения. "
+    "Суммы budget рассчитаны кодом: не пересчитывай их. При budget.is_demo=true "
+    "называй тарифы демонстрационными. Это условная стоимость строительства, "
+    "не рыночная цена, не цена залога и не подтверждённые расходы клиента. "
     "Ты не исполняешь действия и не подтверждаешь решения за сотрудника. "
     "Верни только JSON по переданной схеме."
 )
@@ -46,6 +49,7 @@ def build_context(obj: dict, *, today: date | None = None, utc_offset: int = 7) 
     )
     effective = (review or ready) if trusted else {}
     fixed = obj.get("material") or {}
+    budget = obj.get("valuation") or {}
     inspection_date = _date(flight.get("flown_at") or flight.get("uploaded_at"))
     as_of = min(inspection_date, today) if inspection_date else today
     start, end = _date(obj.get("started_at")), _date(obj.get("planned_completion_at"))
@@ -97,6 +101,13 @@ def build_context(obj: dict, *, today: date | None = None, utc_offset: int = 7) 
         "plan.expected_pct": expected_pct,
         "plan.gap_pp": gap,
         "plan.lag_suspected": lag,
+        "budget.status": budget.get("status"),
+        "budget.completion_scope": budget.get("completion_scope"),
+        "budget.method": budget.get("method"),
+        "budget.is_demo": budget.get("is_demo"),
+        "budget.full_cost_rub": budget.get("full_cost_rub"),
+        "budget.completed_cost_rub": budget.get("completed_cost_rub"),
+        "budget.remaining_cost_rub": budget.get("remaining_cost_rub"),
     }
     missing = []
     if not trusted:

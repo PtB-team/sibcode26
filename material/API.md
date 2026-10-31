@@ -8,6 +8,10 @@
 
 Базовый URL: `/api/v1`. Формат JSON, время в ISO 8601 с таймзоной. Документация OpenAPI генерируется автоматически: `/docs` и `/openapi.json`.
 
+**Дополнение 0.5:** работают `GET/POST /objects/{id}/valuation` и `GET /objects/{id}/valuation/history`; `capabilities.valuation=true`. Это стоимость строительства наружного контура по демонстрационным тарифам, а не рыночная оценка или переоценка залога. Полный контракт, источники данных и ограничения — в [VALUATION.md](VALUATION.md). В проект добавлена `total_area_m2`; карточка включает `valuation` и `valuation_inputs`.
+
+**Подключение ML:** детектор и классификатор материала связаны через рамки стен. В `per_view` добавлены `cls`, `bbox`, `detector_confidence`, `material_conf`: `conf` новых наблюдений — уверенность детектора, `confidence` — материала; совместимый `class` остаётся материалом. В `meta` загрузки можно передать `target_bbox` для фильтрации. Автоматическое определение объекта по кадастру пока недоступно (`automatic_target_identification=false`). Точный формат и настройки — в [YOLO_INTEGRATION.md](YOLO_INTEGRATION.md).
+
 **Дополнение 0.4:** работают `GET /gigachat/status`, `POST/GET /objects/{id}/analysis` и `GET /analyses/{analysis_id}`. Контракт и запуск — в [GIGACHAT_SETUP.md](GIGACHAT_SETUP.md). Это AI-сводка инспекции с `capabilities.gigachat_analysis`; полный `/conductor`, финансовые стратегии и банковский риск ниже остаются планом.
 
 **Общая сборка материалов и готовности, версия 0.3.** Запуск компонентов и изменения полей проверки — в [INTEGRATION.md](INTEGRATION.md). Точный контракт текущего модуля и порядок подключения фронта — в [MATERIAL_API.md](MATERIAL_API.md), команды запуска — в [README сервиса](../README.md). Сейчас реализованы `health`, `meta`, создание/список/карточка объектов, загрузка/список/получение облётов, снимки/оригиналы/превью/кропы, агент готовности, обе ручные проверки, история облётов и журнал проверок. Остальные эндпоинты этого документа остаются планом общего сервиса. Схемы реально работающих запросов доступны в `/docs`.
@@ -98,8 +102,9 @@ Object (объект залога: поля реестра банка)
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `GET` | `/objects/{object_id}/valuation` | последняя оценка (раздел 15.5) |
-| `POST` | `/objects/{object_id}/valuation` | пересчитать; можно передать `land_rub` и `collateral_value_rub` |
+| `GET` | `/objects/{object_id}/valuation` | текущий расчёт стоимости постройки, контракт 0.5 в [VALUATION.md](VALUATION.md) |
+| `POST` | `/objects/{object_id}/valuation` | сохранить параметры: `area_m2`, `unit_cost_rub_m2`, `rate_note`, `land_rub` |
+| `GET` | `/objects/{object_id}/valuation/history` | сохранённые снимки расчёта с признаком `stale` |
 
 **Человек в контуре**
 

@@ -45,7 +45,8 @@ def run(detections, images=FULL_FLIGHT, target=True):
 
 
 def test_configs_are_consistent():
-    assert len(classes_config().classes) == 12
+    assert len(classes_config().classes) == 13
+    assert classes_config().classes[12].id == "fence"
     assert classes_config().classes[11].id == "paving"
     assert classes_config().classes[11].ml_id == 11
     assert [item.id for item in stages_config().stages][0] == "none"

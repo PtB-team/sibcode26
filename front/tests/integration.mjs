@@ -215,6 +215,44 @@ try {
     await page.request.get(`${base}/api/v1/objects/${objectId}/actions`)
   ).json();
   assert.equal(actions.length, 2);
+  await page
+    .getByRole("tab", { name: "Стоимость постройки", exact: true })
+    .click();
+  await page
+    .getByLabel("Общая площадь для расчёта, м²", { exact: true })
+    .fill("100");
+  const calculated = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      response.url().endsWith(`/objects/${objectId}/valuation`),
+  );
+  await page
+    .getByRole("button", {
+      name: "Сохранить параметры и пересчитать",
+      exact: true,
+    })
+    .click();
+  const costResponse = await calculated;
+  assert.equal(costResponse.status(), 200);
+  const cost = await costResponse.json();
+  assert.equal(cost.full_cost_rub, 6000000);
+  assert.equal(cost.completed_cost_rub, 2700000);
+  assert.equal(cost.remaining_cost_rub, 3300000);
+  await page
+    .getByRole("heading", { name: "Стоимость постройки", exact: true })
+    .waitFor();
+  assert.match(
+    await page.locator('[data-cost="remaining_cost_rub"]').innerText(),
+    /3\s*300\s*000/,
+  );
+  assert.match(
+    await page.locator("#construction-cost").innerText(),
+    /Демонстрационные тарифы/,
+  );
+  await page.screenshot({
+    path: path.join(folder, "construction-cost.png"),
+    fullPage: true,
+  });
   await page.getByRole("tab", { name: "Обзор", exact: true }).click();
   await page
     .getByRole("heading", { name: "AI-сводка инспекции", exact: true })
@@ -262,6 +300,11 @@ try {
       readiness: 45,
       material: "brick",
       aiSummary: summary.llm_status,
+      constructionCost: {
+        full: cost.full_cost_rub,
+        completed: cost.completed_cost_rub,
+        remaining: cost.remaining_cost_rub,
+      },
       unsupportedRequests: forbidden.length,
       errors: failures,
       screenshot: path.join(folder, "connected.png"),

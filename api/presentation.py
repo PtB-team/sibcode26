@@ -16,6 +16,7 @@ MATERIAL_REVIEW_REASONS = {
     "CONFLICTING_MATERIALS": "Ракурсы указывают на разные материалы",
     "PREVIOUS_MATERIAL_CONFLICT": "Результат отличается от закреплённого материала",
     "NO_RELIABLE_WALL_VIEWS": "Нет подходящих снимков открытых стен",
+    "CLADDING_MAY_HIDE_STRUCTURE": "Видимый кирпич может быть облицовкой; несущий материал нужно уточнить",
 }
 
 
@@ -30,7 +31,9 @@ def material_result_response(result: dict | None) -> dict | None:
                 **observation,
                 "class": observation.get("material")
                 or ("hidden" if observation.get("visibility") == "hidden" else "unclear"),
-                "conf": observation.get("confidence", 0),
+                "conf": observation.get("detector_confidence")
+                if observation.get("detector_confidence") is not None
+                else observation.get("confidence", 0),
             }
         )
     return {**result, "per_view": observations}

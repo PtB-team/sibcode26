@@ -84,6 +84,7 @@ def test_frontend_object_payload_is_saved_across_restart(client, settings):
             "wall_material": "timber",
             "floors": 2,
             "footprint_m2": 96,
+            "total_area_m2": 180,
             "source": "Project 17",
         },
         "loan": {

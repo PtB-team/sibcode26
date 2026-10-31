@@ -33,6 +33,8 @@ def aggregate(
         if image["is_overhead"] or image["view"] in TOP_VIEWS:
             observation.exclusion_reason = "TOP_VIEW"
             continue
+        if observation.exclusion_reason == "OUTSIDE_TARGET":
+            continue
         non_top.append(observation)
         if observation.visibility != "visible":
             observation.exclusion_reason = observation.visibility.upper()
@@ -40,9 +42,12 @@ def aggregate(
         if observation.confidence < 0.6:
             observation.exclusion_reason = "LOW_CONFIDENCE"
             continue
+        if observation.detector_confidence is not None and observation.detector_confidence < 0.6:
+            observation.exclusion_reason = "LOW_DETECTOR_CONFIDENCE"
+            continue
         observation.included = True
         material = str(observation.material)
-        x1, y1, x2, y2 = observation.crop_bbox
+        x1, y1, x2, y2 = observation.bbox or observation.crop_bbox
         weight = observation.confidence * (x2 - x1) * (y2 - y1)
         facade = image["view"] if image["view"] in FACADES else image["sha256"]
         key = (facade, material)
@@ -109,6 +114,11 @@ def aggregate(
         result.review_reasons.append("LOW_CONFIDENCE")
     if not target_confirmed:
         result.review_reasons.append("TARGET_NOT_CONFIRMED")
+    for observation in observations:
+        if observation.included and observation.material == winner:
+            for reason in observation.review_reasons:
+                if reason not in result.review_reasons:
+                    result.review_reasons.append(reason)
     if result.review_reasons and not result.mixed:
         result.status = "needs_review"
     result.fixed_on_object = result.status == "determined"

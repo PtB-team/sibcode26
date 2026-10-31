@@ -2,10 +2,16 @@ import logging
 
 from agents.analysis.service import AnalysisService
 from agents.material.aggregation import aggregate
-from agents.material.model import DemoPredictor, MaterialPredictor, load_predictor
+from agents.material.model import (
+    DemoPredictor,
+    MaterialPredictor,
+    WallMaterialPredictor,
+    load_predictor,
+)
 from agents.readiness import aggregation as readiness
 from agents.readiness.model import DemoDetector, Detector, load_detector
 from agents.readiness.quality import quality_issues
+from agents.targeting import exclusion_reason
 from api.config import Settings
 from api.database import Database
 from api.images import load_oriented_image, save_crop, save_preview
@@ -19,7 +25,7 @@ class Worker:
     def __init__(
         self,
         settings: Settings,
-        predictor: MaterialPredictor | None = None,
+        predictor: MaterialPredictor | WallMaterialPredictor | None = None,
         detector: Detector | None = None,
         analysis_client=None,
     ) -> None:
@@ -86,28 +92,50 @@ class Worker:
                     issues = quality_issues(image)
                     info.update(quality_ok=not issues, quality_issues=issues)
                     self.database.update_image(info, token)
+                    image_detections = []
                     if "readiness" not in errors:
                         try:
                             for found in self.detector.detect(image, info["id"]):
                                 detection = Detection.model_validate(found)
                                 if detection.image_id != info["id"]:
                                     raise ValueError("Детектор вернул другой image_id")
-                                detections.append(detection)
+                                reason = exclusion_reason(detection.bbox, info)
+                                detection.target_included = reason is None
+                                detection.target_exclusion_reason = reason
+                                image_detections.append(detection)
+                            detections.extend(image_detections)
                         except Exception:
                             self._inference_error("readiness", errors)
                             detections.clear()
                     if "material" not in errors:
                         try:
-                            predictions = (
-                                [Observation(image_id=info["id"], visibility="unclear")]
-                                if info["is_overhead"] or info["view"] in TOP_VIEWS
-                                else self.predictor.predict(image, info["id"])
-                            )
+                            wall_predictor = getattr(self.predictor, "predict_walls", None)
+                            if info["is_overhead"] or info["view"] in TOP_VIEWS:
+                                predictions = [
+                                    Observation(image_id=info["id"], visibility="unclear")
+                                ]
+                            elif wall_predictor is not None:
+                                if "readiness" in errors or self.detector.is_demo:
+                                    errors["material"] = {
+                                        "code": "DETECTOR_REQUIRED",
+                                        "message": "Для материала нужен работающий детектор стен",
+                                    }
+                                    observations.clear()
+                                    predictions = []
+                                else:
+                                    predictions = wall_predictor(
+                                        image, info["id"], image_detections
+                                    )
+                            else:
+                                predictions = self.predictor.predict(image, info["id"])
                             for index, prediction in enumerate(predictions):
                                 value = Observation.model_validate(prediction)
                                 if value.image_id != info["id"]:
                                     raise ValueError("Адаптер вернул другой image_id")
                                 view = ViewObservation(**value.model_dump())
+                                box = value.bbox or value.crop_bbox
+                                if box is not None:
+                                    view.exclusion_reason = exclusion_reason(box, info)
                                 if value.crop_bbox is not None:
                                     save_crop(
                                         image,
