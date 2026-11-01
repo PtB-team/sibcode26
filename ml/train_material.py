@@ -55,7 +55,15 @@ def collect_crops() -> list[dict]:
             continue
         for i, b in enumerate(read_labels(row["image"])):
             if names[b.cls] in wall_classes and b.material:
-                crops.append({"image": row["image"], "object": row["object"], "idx": i, "box": b, "material": b.material})
+                crops.append(
+                    {
+                        "image": row["image"],
+                        "object": row["object"],
+                        "idx": i,
+                        "box": b,
+                        "material": b.material,
+                    }
+                )
     return crops
 
 
@@ -73,15 +81,21 @@ def pick_val_objects(crops: list[dict], seed: int) -> set[str]:
         if len(holders) < 2:
             continue
         target = max(1, round(totals[material] * VAL_SHARE))
-        for o in sorted(holders, key=lambda o: sum(per_object[o].values())):  # мелкие объекты первыми
+        for o in sorted(
+            holders, key=lambda o: sum(per_object[o].values())
+        ):  # мелкие объекты первыми
             have = sum(per_object[v][material] for v in val)
-            if have >= target or len(set(holders) - val) <= 1:  # хотя бы один объект с материалом остаётся в train
+            if (
+                have >= target or len(set(holders) - val) <= 1
+            ):  # хотя бы один объект с материалом остаётся в train
                 break
             val.add(o)
     return val
 
 
-def build(val_objects: set[str], out: Path = OUT_DIR) -> tuple[Path, Counter, Counter]:
+def build(
+    val_objects: set[str], out: Path = OUT_DIR, oversample: dict[str, int] | None = None
+) -> tuple[Path, Counter, Counter]:
     crops = collect_crops()
     shutil.rmtree(out, ignore_errors=True)
     stats = {"train": Counter(), "val": Counter()}
@@ -106,6 +120,9 @@ def build(val_objects: set[str], out: Path = OUT_DIR) -> tuple[Path, Counter, Co
         name = f"{c['object']}_{Path(c['image']).stem}_{c['idx']}.jpg"
         im.crop(box).save(d / name, quality=95)
         stats[split][c["material"]] += 1
+        # Редкий материал повторяется в train: аугментации дают каждой копии свой вид.
+        for k in range(1, (oversample or {}).get(c["material"], 1) if split == "train" else 1):
+            shutil.copyfile(d / name, d / f"{Path(name).stem}_x{k}.jpg")
     if skipped:
         print(f"пропущено мелких кропов (< {MIN_CROP_PX} px): {skipped}")
     return out, stats["train"], stats["val"]
@@ -113,14 +130,19 @@ def build(val_objects: set[str], out: Path = OUT_DIR) -> tuple[Path, Counter, Co
 
 def evaluate(weights: Path, root: Path, imgsz: int, device: str) -> dict:
     """Точность по классам и по группам на val: для сигнала MATERIAL_MISMATCH важна именно группа (раздел 5.7)."""
-    group = {m["name"]: m["group"] for m in yaml.safe_load(MATERIALS_YAML.read_text(encoding="utf-8"))["materials"]}
+    group = {
+        m["name"]: m["group"]
+        for m in yaml.safe_load(MATERIALS_YAML.read_text(encoding="utf-8"))["materials"]
+    }
     model = YOLO(str(weights))
     hit, total, group_hit, group_total = Counter(), Counter(), 0, 0
     confusion: dict[str, Counter] = defaultdict(Counter)
     for d in sorted((root / "val").iterdir()):
         files = sorted(d.glob("*.jpg"))
         for k in range(0, len(files), 32):
-            for res in model.predict([str(f) for f in files[k:k + 32]], imgsz=imgsz, device=device, verbose=False):
+            for res in model.predict(
+                [str(f) for f in files[k : k + 32]], imgsz=imgsz, device=device, verbose=False
+            ):
                 pred = res.names[int(res.probs.top1)]
                 total[d.name] += 1
                 hit[d.name] += pred == d.name
@@ -137,7 +159,9 @@ def evaluate(weights: Path, root: Path, imgsz: int, device: str) -> dict:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--model", default="yolo26m-cls.pt")
     p.add_argument("--imgsz", type=int, default=384, help="раздел 5.7")
     p.add_argument("--epochs", type=int, default=60)
@@ -145,13 +169,26 @@ def main() -> None:
     p.add_argument("--batch", type=int, default=32)
     p.add_argument("--device", default="0" if torch.cuda.is_available() else "cpu")
     p.add_argument("--workers", type=int, default=4)
-    p.add_argument("--val-objects", default="", help="объекты для val через запятую; по умолчанию подбираются сами")
+    p.add_argument(
+        "--val-objects",
+        default="",
+        help="объекты для val через запятую; по умолчанию подбираются сами",
+    )
     p.add_argument("--name", default="material")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--oversample",
+        default="brick=3",
+        help="во сколько раз повторить вырезки материала в train, через запятую; '' — без повторов. "
+        "Кирпича втрое меньше, чем «скрыт отделкой», без повторов он весь уходил в hidden",
+    )
     args = p.parse_args()
+    oversample = {
+        m: int(k) for m, _, k in (x.partition("=") for x in args.oversample.split(",") if x)
+    }
 
     val_objects = parse_objects(args.val_objects) or pick_val_objects(collect_crops(), args.seed)
-    root, train_stats, val_stats = build(val_objects)
+    root, train_stats, val_stats = build(val_objects, oversample=oversample)
     print(f"val-объекты: {', '.join(sorted(val_objects, key=_object_key))}")
     print(f"{'материал':<18}{'train':>7}{'val':>7}")
     for m in sorted(set(train_stats) | set(val_stats), key=lambda m: -train_stats[m]):
@@ -194,7 +231,9 @@ def main() -> None:
         "val_crops": dict(val_stats),
         **evaluate(final, root, args.imgsz, args.device),
     }
-    (run_dir / "metrics_val.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_dir / "metrics_val.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(f"\nвеса: {final}")
     print(f"точность top1 {report['top1']}  по группам {report['group_accuracy']}")
     for m, v in report["per_class"].items():

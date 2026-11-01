@@ -37,12 +37,18 @@ def _object_key(obj: str) -> tuple[int, str]:
     return (0, f"{int(obj):06d}") if obj.isdigit() else (1, obj)
 
 
-def build(val_objects: set[str], exclude_objects: set[str] = frozenset(), out: Path = OUT_DIR,
-          include_prelabel: bool = False) -> Path:
+def build(
+    val_objects: set[str],
+    exclude_objects: set[str] = frozenset(),
+    out: Path = OUT_DIR,
+    include_prelabel: bool = False,
+) -> Path:
     """Собирает датасет и возвращает путь к data.yaml."""
     names = [c["name"] for c in load_classes()]
     statuses = {STATUS_REVIEWED, STATUS_PRELABEL} if include_prelabel else {STATUS_REVIEWED}
-    rows = [r for r in read_manifest() if r["object"] not in exclude_objects and r["status"] in statuses]
+    rows = [
+        r for r in read_manifest() if r["object"] not in exclude_objects and r["status"] in statuses
+    ]
     missing = [r for r in rows if not (REPO / r["image"]).exists()]
     if missing:
         # Внешние фото не в git: у кого нет папки data/external/, тот учится без них.
@@ -50,7 +56,9 @@ def build(val_objects: set[str], exclude_objects: set[str] = frozenset(), out: P
         rows = [r for r in rows if r not in missing]
     unknown = val_objects - {r["object"] for r in rows}
     if unknown:
-        raise ValueError(f"объектов {sorted(unknown)} нет среди размеченных в manifest.csv (или они исключены)")
+        raise ValueError(
+            f"объектов {sorted(unknown)} нет среди размеченных в manifest.csv (или они исключены)"
+        )
 
     for split in ("train", "val"):
         for kind in ("images", "labels"):
@@ -67,15 +75,23 @@ def build(val_objects: set[str], exclude_objects: set[str] = frozenset(), out: P
         boxes = read_labels(row["image"])
         # Материал стены — атрибут для классификатора, детектору нужен чистый YOLO из 5 колонок.
         (out / "labels" / split / f"{name}.txt").write_text(
-            "".join(f"{b.cls} {b.cx:.6f} {b.cy:.6f} {b.w:.6f} {b.h:.6f}\n" for b in boxes), encoding="utf-8")
+            "".join(f"{b.cls} {b.cx:.6f} {b.cy:.6f} {b.w:.6f} {b.h:.6f}\n" for b in boxes),
+            encoding="utf-8",
+        )
         stats[split].update(names[b.cls] for b in boxes)
         images[split] += 1
 
     data_yaml = out / "data.yaml"
     data_yaml.write_text(
         yaml.safe_dump(
-            {"path": str(out), "train": "images/train", "val": "images/val", "names": dict(enumerate(names))},
-            allow_unicode=True, sort_keys=False,
+            {
+                "path": str(out),
+                "train": "images/train",
+                "val": "images/val",
+                "names": dict(enumerate(names)),
+            },
+            allow_unicode=True,
+            sort_keys=False,
         ),
         encoding="utf-8",
     )
@@ -83,7 +99,9 @@ def build(val_objects: set[str], exclude_objects: set[str] = frozenset(), out: P
     objects = {r["object"] for r in rows}
     train_objects = sorted(objects - val_objects, key=_object_key)
     print(f"train: {images['train']} снимков, {len(train_objects)} объектов")
-    print(f"val:   {images['val']} снимков, объекты {', '.join(sorted(val_objects, key=_object_key))}")
+    print(
+        f"val:   {images['val']} снимков, объекты {', '.join(sorted(val_objects, key=_object_key))}"
+    )
     print(f"{'класс':<18}{'train':>7}{'val':>7}")
     for n in names:
         mark = "  <- нет примеров в train" if not stats["train"][n] else ""
@@ -97,13 +115,28 @@ def parse_objects(value: str) -> set[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--val-objects", default=DEFAULT_VAL_OBJECTS, help="объекты для val через запятую: 6,13,house_101")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--val-objects",
+        default=DEFAULT_VAL_OBJECTS,
+        help="объекты для val через запятую: 6,13,house_101",
+    )
     parser.add_argument("--exclude-objects", default="", help="объекты, которые не берём вовсе")
-    parser.add_argument("--include-prelabel", action="store_true", help="взять и снимки с непроверенными рамками модели")
+    parser.add_argument(
+        "--include-prelabel",
+        action="store_true",
+        help="взять и снимки с непроверенными рамками модели",
+    )
     parser.add_argument("--out", type=Path, default=OUT_DIR)
     args = parser.parse_args()
-    build(parse_objects(args.val_objects), parse_objects(args.exclude_objects), args.out, args.include_prelabel)
+    build(
+        parse_objects(args.val_objects),
+        parse_objects(args.exclude_objects),
+        args.out,
+        args.include_prelabel,
+    )
 
 
 if __name__ == "__main__":
