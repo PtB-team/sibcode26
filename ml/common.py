@@ -80,7 +80,9 @@ def read_labels(image: str) -> list[Box]:
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             c, cx, cy, w, h, *rest = line.split()
-            boxes.append(Box(int(c), float(cx), float(cy), float(w), float(h), rest[0] if rest else ""))
+            boxes.append(
+                Box(int(c), float(cx), float(cy), float(w), float(h), rest[0] if rest else "")
+            )
     return boxes
 
 

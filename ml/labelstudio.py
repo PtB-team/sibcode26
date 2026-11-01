@@ -105,8 +105,15 @@ def export_tasks(url_prefix: str, as_predictions: bool) -> list[dict]:
             result.append(_region(rid, w, h, b, "label", {"rectanglelabels": [names[b.cls]]}))
             if b.material:
                 result.append(_region(rid, w, h, b, "material", {"choices": [b.material]}))
-        result.append({"id": f"{prefix}_view", "type": "choices", "from_name": "view", "to_name": "image",
-                       "value": {"choices": [row["view"]]}})
+        result.append(
+            {
+                "id": f"{prefix}_view",
+                "type": "choices",
+                "from_name": "view",
+                "to_name": "image",
+                "value": {"choices": [row["view"]]},
+            }
+        )
         task = {
             "data": {
                 "image": url_prefix + row["image"],
@@ -152,7 +159,13 @@ def import_export(path: Path) -> None:
                     raise ValueError(f"{image}: повёрнутая рамка, YOLO-det её не поддерживает")
                 x1, y1 = max(v["x"], 0) / 100, max(v["y"], 0) / 100
                 x2, y2 = min(v["x"] + v["width"], 100) / 100, min(v["y"] + v["height"], 100) / 100
-                rects[r["id"]] = (name_to_id[v["rectanglelabels"][0]], (x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1)
+                rects[r["id"]] = (
+                    name_to_id[v["rectanglelabels"][0]],
+                    (x1 + x2) / 2,
+                    (y1 + y2) / 2,
+                    x2 - x1,
+                    y2 - y1,
+                )
         boxes = [Box(*rect, materials.get(rid, "")) for rid, rect in rects.items()]
         write_labels(image, boxes)
         manifest[image]["boxes"] = str(len(boxes))
@@ -165,14 +178,22 @@ def import_export(path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("config", help="записать интерфейс разметки")
     exp = sub.add_parser("export", help="YOLO -> задачи Label Studio")
-    exp.add_argument("--url-prefix", default=DEFAULT_URL_PREFIX,
-                     help="префикс URL снимка; путь снимка из manifest.csv добавляется к нему (по умолчанию Local Storage)")
-    exp.add_argument("--as-predictions", action="store_true",
-                     help="положить все рамки в predictions (предразметка на проверку), а не в annotations")
+    exp.add_argument(
+        "--url-prefix",
+        default=DEFAULT_URL_PREFIX,
+        help="префикс URL снимка; путь снимка из manifest.csv добавляется к нему (по умолчанию Local Storage)",
+    )
+    exp.add_argument(
+        "--as-predictions",
+        action="store_true",
+        help="положить все рамки в predictions (предразметка на проверку), а не в annotations",
+    )
     exp.add_argument("--out", type=Path, default=TASKS_JSON)
     imp = sub.add_parser("import", help="выгрузка Label Studio -> YOLO")
     imp.add_argument("export_json", type=Path)

@@ -1,14 +1,14 @@
-
+import platform
 import sys
 import time
-import platform
-import subprocess
+
 
 def check(title, ok, detail=""):
     status = "OK" if ok else "FAIL"
     print(f"[{status}] {title}")
     if detail:
         print(f"       {detail}")
+
 
 print("=" * 55)
 print("       YOLO GPU READINESS TEST")
@@ -38,7 +38,7 @@ print(f"GPU count: {torch.cuda.device_count()}")
 
 for i in range(torch.cuda.device_count()):
     props = torch.cuda.get_device_properties(i)
-    total = props.total_memory / (1024 ** 3)
+    total = props.total_memory / (1024**3)
 
     print(f"\n--- GPU {i} ---")
     print(f"Название: {props.name}")
@@ -50,7 +50,7 @@ device = torch.device("cuda:0")
 try:
     free, total = torch.cuda.mem_get_info(device)
     print(f"\nVRAM свободно: {free / 1024**3:.2f} GB")
-    print(f"VRAM занято: {(total-free) / 1024**3:.2f} GB")
+    print(f"VRAM занято: {(total - free) / 1024**3:.2f} GB")
 except Exception as e:
     print(f"Не удалось прочитать VRAM: {e}")
 
@@ -82,9 +82,7 @@ print("\n--- Тест обучения нейросети ---")
 
 try:
     model = torch.nn.Sequential(
-        torch.nn.Linear(512, 1024),
-        torch.nn.ReLU(),
-        torch.nn.Linear(1024, 10)
+        torch.nn.Linear(512, 1024), torch.nn.ReLU(), torch.nn.Linear(1024, 10)
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -103,8 +101,11 @@ try:
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - start
 
-    check("Forward + Backward + Optimizer", True,
-          f"10 шагов: {elapsed:.3f} сек; loss={loss.item():.4f}")
+    check(
+        "Forward + Backward + Optimizer",
+        True,
+        f"10 шагов: {elapsed:.3f} сек; loss={loss.item():.4f}",
+    )
 
 except Exception as e:
     check("Обучение нейросети", False, str(e))
@@ -114,11 +115,10 @@ print("\n--- Ultralytics YOLO ---")
 
 try:
     import ultralytics
-    check("Ultralytics установлен", True,
-          f"Версия: {ultralytics.__version__}")
+
+    check("Ultralytics установлен", True, f"Версия: {ultralytics.__version__}")
 except ImportError:
-    check("Ultralytics установлен", False,
-          "pip install ultralytics")
+    check("Ultralytics установлен", False, "pip install ultralytics")
 
 print("\n" + "=" * 55)
 print("GPU ГОТОВ К ОБУЧЕНИЮ НЕЙРОСЕТЕЙ")

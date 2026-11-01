@@ -28,12 +28,33 @@ from common import (
 )
 from PIL import Image
 
-VIEW_MAP = {"drone_nadir": "nadir", "drone_oblique": "oblique", "elevated": "oblique", "ground": "ground"}
+VIEW_MAP = {
+    "drone_nadir": "nadir",
+    "drone_oblique": "oblique",
+    "elevated": "oblique",
+    "ground": "ground",
+}
 # Стадии первой партии записаны номерами пунктов ТЗ.
-STAGE_IDS = {"1": "roof_frame", "2": "walls_partial", "3": "foundation", "4": "open_walls", "5": "openings_empty"}
+STAGE_IDS = {
+    "1": "roof_frame",
+    "2": "walls_partial",
+    "3": "foundation",
+    "4": "open_walls",
+    "5": "openings_empty",
+}
 # При --max-per-house первыми берутся снимки редких стадий.
-STAGE_PRIORITY = ["roof_frame", "walls_partial", "empty_plot", "site_prep", "foundation", "openings_empty",
-                  "open_walls", "walls_full", "roof_covered", "finished"]
+STAGE_PRIORITY = [
+    "roof_frame",
+    "walls_partial",
+    "empty_plot",
+    "site_prep",
+    "foundation",
+    "openings_empty",
+    "open_walls",
+    "walls_full",
+    "roof_covered",
+    "finished",
+]
 
 
 def _stages(row: dict) -> list[str]:
@@ -42,7 +63,10 @@ def _stages(row: dict) -> list[str]:
 
 
 def _priority(row: dict) -> int:
-    return min((STAGE_PRIORITY.index(s) for s in _stages(row) if s in STAGE_PRIORITY), default=len(STAGE_PRIORITY))
+    return min(
+        (STAGE_PRIORITY.index(s) for s in _stages(row) if s in STAGE_PRIORITY),
+        default=len(STAGE_PRIORITY),
+    )
 
 
 def register(batch: Path, max_per_house: int) -> list[str]:
@@ -57,19 +81,30 @@ def register(batch: Path, max_per_house: int) -> list[str]:
 
     added = []
     for house, items in by_house.items():
-        keep = {id(r) for r in sorted(items, key=_priority)[:max_per_house]} if max_per_house else {id(r) for r in items}
+        keep = (
+            {id(r) for r in sorted(items, key=_priority)[:max_per_house]}
+            if max_per_house
+            else {id(r) for r in items}
+        )
         for r in items:
             image = (batch / house / r["file"]).resolve().relative_to(REPO).as_posix()
             if image in known:
                 continue
             w, h = Image.open(REPO / image).size
             status = STATUS_PRELABEL if id(r) in keep else STATUS_SKIP
-            rows.append({
-                "image": image, "object": house, "view": VIEW_MAP.get(r.get("view", ""), "ground"),
-                "width": w, "height": h, "boxes": 0,
-                "note": f"{', '.join(_stages(r))}; стены: {r.get('wall_material') or 'unknown'}",
-                "status": status, "source": r.get("source_page", ""),
-            })
+            rows.append(
+                {
+                    "image": image,
+                    "object": house,
+                    "view": VIEW_MAP.get(r.get("view", ""), "ground"),
+                    "width": w,
+                    "height": h,
+                    "boxes": 0,
+                    "note": f"{', '.join(_stages(r))}; стены: {r.get('wall_material') or 'unknown'}",
+                    "status": status,
+                    "source": r.get("source_page", ""),
+                }
+            )
             if status == STATUS_PRELABEL:
                 added.append(image)
     write_manifest(rows)
@@ -84,9 +119,14 @@ def prelabel(images: list[str], weights: Path, conf: float, imgsz: int) -> None:
     todo = [i for i in images if not label_path(i).exists()]
     counts = {}
     for k in range(0, len(todo), 16):
-        chunk = todo[k:k + 16]
-        for image, res in zip(chunk, model.predict([str(REPO / i) for i in chunk], conf=conf, imgsz=imgsz, verbose=False)):
-            boxes = [Box(int(c), *map(float, xywh)) for c, xywh in zip(res.boxes.cls, res.boxes.xywhn)]
+        chunk = todo[k : k + 16]
+        for image, res in zip(
+            chunk,
+            model.predict([str(REPO / i) for i in chunk], conf=conf, imgsz=imgsz, verbose=False),
+        ):
+            boxes = [
+                Box(int(c), *map(float, xywh)) for c, xywh in zip(res.boxes.cls, res.boxes.xywhn)
+            ]
             write_labels(image, boxes)
             counts[image] = len(boxes)
     rows = read_manifest()
@@ -98,10 +138,16 @@ def prelabel(images: list[str], weights: Path, conf: float, imgsz: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("batch", type=Path, help="папка партии с house_NNN/ и manifest.csv")
-    parser.add_argument("--max-per-house", type=int, default=0,
-                        help="размечать не больше N снимков дома (редкие стадии первыми), остальные — skip")
+    parser.add_argument(
+        "--max-per-house",
+        type=int,
+        default=0,
+        help="размечать не больше N снимков дома (редкие стадии первыми), остальные — skip",
+    )
     parser.add_argument("--prelabel", type=Path, help="веса модели для черновых рамок")
     parser.add_argument("--conf", type=float, default=0.3)
     parser.add_argument("--imgsz", type=int, default=1280)
